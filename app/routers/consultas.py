@@ -88,10 +88,10 @@ def plan_completo(db: Session = Depends(get_db)):
 
         resultado.append(
             schemas.MateriaConEstado(
-                materia=schemas.MateriaOut.model_validate(m),
+                materia=schemas.MateriaOut.from_orm(m),
                 estado=estado_actual,
                 puede_cursar=puede,
-                prerequisitos=[schemas.PrerequisitoOut.model_validate(p) for p in m.prerequisitos],
+                prerequisitos=[schemas.PrerequisitoOut.from_orm(p) for p in m.prerequisitos],
             )
         )
 

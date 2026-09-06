@@ -1,3 +1,5 @@
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -7,7 +9,7 @@ from app.ws_manager import manager
 router = APIRouter(prefix="/prerequisitos", tags=["Prerequisitos"])
 
 
-@router.get("", response_model=list[schemas.PrerequisitoOut])
+@router.get("", response_model=List[schemas.PrerequisitoOut])
 def listar_prerequisitos(db: Session = Depends(get_db)):
     """Lista todos los prerequisitos definidos."""
     return db.query(models.Prerequisito).all()
@@ -38,12 +40,12 @@ async def crear_prerequisito(prereq: schemas.PrerequisitoCreate, db: Session = D
     if existente:
         raise HTTPException(status_code=400, detail="Este prerequisito ya existe")
 
-    db_prereq = models.Prerequisito(**prereq.model_dump())
+    db_prereq = models.Prerequisito(**prereq.dict())
     db.add(db_prereq)
     db.commit()
     db.refresh(db_prereq)
 
-    await manager.broadcast("prerequisito_creado", schemas.PrerequisitoOut.model_validate(db_prereq).model_dump())
+    await manager.broadcast("prerequisito_creado", schemas.PrerequisitoOut.from_orm(db_prereq).dict())
     return db_prereq
 
 

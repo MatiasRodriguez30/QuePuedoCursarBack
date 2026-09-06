@@ -36,6 +36,6 @@ async def actualizar_config(datos: schemas.ConfigUpdate, db: Session = Depends(g
     db.commit()
     db.refresh(cfg)
 
-    out = schemas.ConfigOut.model_validate(cfg)
-    await manager.broadcast("config_actualizada", out.model_dump())
+    out = schemas.ConfigOut.from_orm(cfg)
+    await manager.broadcast("config_actualizada", out.dict())
     return cfg

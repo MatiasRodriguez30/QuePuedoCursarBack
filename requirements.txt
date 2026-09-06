@@ -1,5 +1,10 @@
-fastapi>=0.111.0
+# Pineado a Pydantic v1 (puro Python) a propósito: Pydantic v2 depende de
+# pydantic-core (Rust) y no hay wheels precompiladas para Termux/ARM de 32
+# bits, así que habría que compilarlo a mano — inviable en una tablet con
+# ~1GB de RAM y Rust 1.38. FastAPI 0.95.x es la última rama que sólo pide
+# Pydantic v1 (no arrastra pydantic v2 como dependencia).
+fastapi==0.95.2
 uvicorn>=0.29.0
 sqlalchemy>=2.0.0
-pydantic>=2.0.0
+pydantic>=1.10.13,<2.0.0
 websockets>=12.0

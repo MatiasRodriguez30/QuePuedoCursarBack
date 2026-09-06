@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Optional, List
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel
 from app.models import TipoPrerequisito, EstadoEnum
 
 
@@ -35,7 +35,9 @@ class MateriaUpdate(BaseModel):
 
 class MateriaOut(MateriaBase):
     id: int
-    model_config = {"from_attributes": True}
+
+    class Config:
+        orm_mode = True
 
 
 # ─────────────────────────────────────────────
@@ -54,7 +56,9 @@ class PrerequisitoOut(BaseModel):
     materia_requerida_id: int
     tipo: TipoPrerequisito
     materia_requerida: MateriaOut
-    model_config = {"from_attributes": True}
+
+    class Config:
+        orm_mode = True
 
 
 # ─────────────────────────────────────────────
@@ -69,7 +73,9 @@ class EstadoMateriaOut(BaseModel):
     materia_id: int
     estado: EstadoEnum
     materia: MateriaOut
-    model_config = {"from_attributes": True}
+
+    class Config:
+        orm_mode = True
 
 
 # ─────────────────────────────────────────────
@@ -81,7 +87,9 @@ class MateriaConEstado(BaseModel):
     estado: EstadoEnum
     puede_cursar: bool
     prerequisitos: List[PrerequisitoOut]
-    model_config = {"from_attributes": True}
+
+    class Config:
+        orm_mode = True
 
 
 # ─────────────────────────────────────────────
@@ -96,4 +104,6 @@ class ConfigUpdate(BaseModel):
 class ConfigOut(BaseModel):
     anio_actual: Optional[int] = None
     cuatrimestre_actual: Optional[int] = None
-    model_config = {"from_attributes": True}
+
+    class Config:
+        orm_mode = True

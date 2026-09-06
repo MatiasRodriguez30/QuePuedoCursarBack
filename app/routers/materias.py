@@ -1,3 +1,5 @@
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -7,7 +9,7 @@ from app.ws_manager import manager
 router = APIRouter(prefix="/materias", tags=["Materias"])
 
 
-@router.get("", response_model=list[schemas.MateriaOut])
+@router.get("", response_model=List[schemas.MateriaOut])
 def listar_materias(db: Session = Depends(get_db)):
     """Devuelve todas las materias del plan de estudios."""
     return db.query(models.Materia).order_by(models.Materia.anio, models.Materia.cuatrimestre, models.Materia.nombre).all()
@@ -28,7 +30,7 @@ async def crear_materia(materia: schemas.MateriaCreate, db: Session = Depends(ge
         if existente:
             raise HTTPException(status_code=400, detail=f"Ya existe una materia con código '{codigo_manual}'")
 
-    datos = materia.model_dump(exclude={"codigo"})
+    datos = materia.dict(exclude={"codigo"})
     # Placeholder temporal mientras no conocemos el ID (la columna es NOT NULL + UNIQUE).
     db_materia = models.Materia(codigo=codigo_manual or "__pendiente__", **datos)
     db.add(db_materia)
@@ -42,7 +44,7 @@ async def crear_materia(materia: schemas.MateriaCreate, db: Session = Depends(ge
     db.commit()
     db.refresh(db_materia)
 
-    await manager.broadcast("materia_creada", schemas.MateriaOut.model_validate(db_materia).model_dump())
+    await manager.broadcast("materia_creada", schemas.MateriaOut.from_orm(db_materia).dict())
     return db_materia
 
 
@@ -65,7 +67,7 @@ async def actualizar_materia(materia_id: int, datos: schemas.MateriaUpdate, db: 
     if not materia:
         raise HTTPException(status_code=404, detail="Materia no encontrada")
 
-    campos = datos.model_dump(exclude_unset=True)
+    campos = datos.dict(exclude_unset=True)
     if "codigo" in campos:
         nuevo_codigo = (campos["codigo"] or "").strip() or str(materia.id)
         if nuevo_codigo != materia.codigo:
@@ -84,7 +86,7 @@ async def actualizar_materia(materia_id: int, datos: schemas.MateriaUpdate, db: 
     db.commit()
     db.refresh(materia)
 
-    await manager.broadcast("materia_actualizada", schemas.MateriaOut.model_validate(materia).model_dump())
+    await manager.broadcast("materia_actualizada", schemas.MateriaOut.from_orm(materia).dict())
     return materia
 
 
@@ -101,7 +103,7 @@ async def eliminar_materia(materia_id: int, db: Session = Depends(get_db)):
     await manager.broadcast("materia_eliminada", {"id": materia_id})
 
 
-@router.get("/{materia_id}/prerequisitos", response_model=list[schemas.PrerequisitoOut])
+@router.get("/{materia_id}/prerequisitos", response_model=List[schemas.PrerequisitoOut])
 def prerequisitos_de_materia(materia_id: int, db: Session = Depends(get_db)):
     """Lista los prerequisitos de una materia específica."""
     materia = db.query(models.Materia).filter(models.Materia.id == materia_id).first()
