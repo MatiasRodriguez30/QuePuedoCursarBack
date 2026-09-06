@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+venv/
+.venv/
+*.db
+*.db-journal
+*.log
+.claude/
+.env
+frontend/
+deploy.out
+.uvicorn.pid
+.cloudflared.pid
+tunnel_url.txt
