@@ -42,7 +42,7 @@ internet con un [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare
 ### Instalación inicial en la tablet
 
 ```bash
-pkg update -y && pkg install -y git python
+pkg update -y && pkg install -y git python proot ca-certificates
 
 git clone https://github.com/MatiasRodriguez30/QuePuedoCursarBack.git
 cd QuePuedoCursarBack
@@ -61,6 +61,63 @@ termux-wake-lock   # evita que Android mate el proceso al apagar pantalla
 Después, en Ajustes de Android → Batería → Termux, desactivá la optimización
 de batería (si no, el sistema puede matar el proceso igual).
 
+⚠️ **Nota Termux/ARM**: `cloudflared` es un binario Go estático y no puede usar
+la resolución DNS ni la validación TLS nativas de Android (a diferencia de
+`curl`/`ping`, que sí funcionan). Sin root no se puede escribir el `/etc/`
+real del sistema para arreglarlo directamente, así que se usa `proot` (sin
+privilegios) para "inyectarle" un `resolv.conf` y un bundle de certificados
+CA propios de Termux. El script `deploy/tablet_run.sh` ya hace esto
+automáticamente en cada arranque del túnel — no hace falta pensarlo dos veces,
+pero si corrés `cloudflared` a mano fuera del script, envolvelo así:
+
+```bash
+proot -b $PREFIX/etc/resolv.conf:/etc/resolv.conf \
+      -b $PREFIX/etc/tls/cert.pem:/etc/ssl/certs/ca-certificates.crt \
+      cloudflared <comando>
+```
+
+### Configurar el túnel nombrado (URL fija)
+
+A diferencia de un Quick Tunnel (URL aleatoria que cambia en cada reinicio),
+un túnel nombrado con un dominio propio en Cloudflare da una URL **fija para
+siempre**. Se hace una sola vez:
+
+```bash
+# 1. Login (abre una URL: hay que autorizarla desde un navegador).
+#    Si la tablet ya tiene un cert.pem de otro proyecto con la misma cuenta
+#    de Cloudflare, este paso se puede saltear.
+proot -b $PREFIX/etc/resolv.conf:/etc/resolv.conf \
+      -b $PREFIX/etc/tls/cert.pem:/etc/ssl/certs/ca-certificates.crt \
+      cloudflared tunnel login
+
+# 2. Crear el túnel (anotar el UUID que devuelve)
+proot -b $PREFIX/etc/resolv.conf:/etc/resolv.conf \
+      -b $PREFIX/etc/tls/cert.pem:/etc/ssl/certs/ca-certificates.crt \
+      cloudflared tunnel create quepuedocursar
+
+# 3. Crear cloudflared_config.yml (NO se versiona, es específico de esta
+#    tablet) con el UUID del paso anterior:
+cat > cloudflared_config.yml << 'EOF'
+tunnel: <UUID-DEL-TUNEL>
+credentials-file: /data/data/com.termux/files/home/.cloudflared/<UUID-DEL-TUNEL>.json
+ingress:
+  - hostname: <tu-subdominio>.<tu-dominio>
+    service: http://127.0.0.1:8000
+  - service: http_status:404
+EOF
+
+# 4. Rutear el subdominio al túnel (-f fuerza el reemplazo si ya existía)
+proot -b $PREFIX/etc/resolv.conf:/etc/resolv.conf \
+      -b $PREFIX/etc/tls/cert.pem:/etc/ssl/certs/ca-certificates.crt \
+      cloudflared tunnel --config cloudflared_config.yml route dns -f \
+      quepuedocursar <tu-subdominio>.<tu-dominio>
+```
+
+⚠️ Si la tablet ya tenía **otro** `~/.cloudflared/config.yml` de un proyecto
+anterior, especificá siempre `--config cloudflared_config.yml` explícitamente
+(como en los comandos de arriba) — sin eso, `cloudflared` carga por defecto
+ese config viejo y puede rutear el DNS al túnel equivocado.
+
 ### Arrancar todo (server + túnel + auto-deploy)
 
 ```bash
@@ -71,24 +128,10 @@ disown
 Esto:
 1. Crea el virtualenv e instala dependencias si hace falta.
 2. Levanta `uvicorn` en el puerto 8000.
-3. Levanta un Cloudflare **Quick Tunnel** (`cloudflared tunnel --url ...`) y
-   guarda la URL pública en `tunnel_url.txt`.
+3. Levanta el Cloudflare Tunnel nombrado usando `cloudflared_config.yml`.
 4. Cada 60s chequea si hay commits nuevos en `origin/main`; si los hay, hace
    `git reset --hard`, reinstala dependencias si cambió `requirements.txt`,
    y reinicia `uvicorn` — sin downtime del túnel.
-
-Para ver la URL pública actual:
-
-```bash
-cat tunnel_url.txt
-```
-
-⚠️ Un Quick Tunnel es gratis y no requiere cuenta, pero la URL
-`https://algo-random.trycloudflare.com` **cambia** cada vez que se reinicia
-`cloudflared` (por ejemplo, si se reinicia la tablet). Si necesitás una URL
-fija, hace falta un dominio propio en Cloudflare y un *named tunnel*
-(`cloudflared tunnel login` + `cloudflared tunnel create`) — avisá si querés
-migrar a eso más adelante.
 
 ### Logs y control manual
 

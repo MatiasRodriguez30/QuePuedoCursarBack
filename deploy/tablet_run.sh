@@ -1,10 +1,14 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # ─────────────────────────────────────────────────────────────────────────
 # Corre el backend en la tablet (Termux) y lo mantiene actualizado solo:
-#   - Expone el puerto 8000 a internet con un Cloudflare Quick Tunnel.
+#   - Expone el puerto 8000 a internet con un Cloudflare Tunnel nombrado
+#     (URL fija, no cambia entre reinicios).
 #   - Cada CHECK_INTERVAL segundos revisa si hay commits nuevos en el
 #     remoto; si los hay, hace pull, reinstala dependencias si cambió
-#     requirements.txt, y reinicia uvicorn.
+#     requirements.txt, y reinicia uvicorn (el túnel no se reinicia).
+#
+# Requiere que ya exista ~/QuePuedoCursarBack/cloudflared_config.yml
+# (no se versiona: es específico de esta tablet). Ver README para crearlo.
 #
 # Uso:
 #   cd ~/QuePuedoCursarBack
@@ -17,16 +21,17 @@
 # ─────────────────────────────────────────────────────────────────────────
 set -u
 
+PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BRANCH="${DEPLOY_BRANCH:-main}"
 CHECK_INTERVAL="${CHECK_INTERVAL:-60}"
 PORT="${PORT:-8000}"
 VENV_DIR="$REPO_DIR/venv"
+CF_CONFIG="$REPO_DIR/cloudflared_config.yml"
 PID_UVICORN="$REPO_DIR/.uvicorn.pid"
 PID_TUNNEL="$REPO_DIR/.cloudflared.pid"
 LOG_UVICORN="$REPO_DIR/uvicorn.log"
 LOG_TUNNEL="$REPO_DIR/cloudflared.log"
-TUNNEL_URL_FILE="$REPO_DIR/tunnel_url.txt"
 
 cd "$REPO_DIR" || exit 1
 
@@ -53,24 +58,28 @@ start_uvicorn() {
 
 start_tunnel_if_needed() {
   if [ -f "$PID_TUNNEL" ] && kill -0 "$(cat "$PID_TUNNEL")" 2>/dev/null; then
-    return 0 # ya está corriendo, el túnel no necesita reiniciarse por un redeploy de la app
+    return 0 # ya está corriendo, no necesita reiniciarse por un redeploy de la app
   fi
-  log "Arrancando Cloudflare Quick Tunnel..."
+  if [ ! -f "$CF_CONFIG" ]; then
+    log "ADVERTENCIA: no existe $CF_CONFIG, no se puede levantar el túnel (ver README)."
+    return 1
+  fi
+  log "Arrancando Cloudflare Tunnel..."
   : > "$LOG_TUNNEL"
-  nohup cloudflared tunnel --url "http://localhost:$PORT" --logfile "$LOG_TUNNEL" >> "$LOG_TUNNEL" 2>&1 &
+  # cloudflared es un binario Go estático: no puede resolver DNS ni validar TLS
+  # usando los mecanismos nativos de Android. proot le "inyecta" un
+  # /etc/resolv.conf y un bundle de certificados CA sin necesitar root.
+  nohup proot \
+    -b "$PREFIX/etc/resolv.conf:/etc/resolv.conf" \
+    -b "$PREFIX/etc/tls/cert.pem:/etc/ssl/certs/ca-certificates.crt" \
+    cloudflared tunnel --config "$CF_CONFIG" run >> "$LOG_TUNNEL" 2>&1 &
   echo $! > "$PID_TUNNEL"
-
-  # Esperar a que cloudflared imprima la URL pública (trycloudflare.com) y guardarla.
-  for _ in $(seq 1 20); do
-    sleep 1
-    URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' "$LOG_TUNNEL" | head -1)
-    if [ -n "$URL" ]; then
-      echo "$URL" > "$TUNNEL_URL_FILE"
-      log "Túnel público: $URL"
-      return 0
-    fi
-  done
-  log "No se pudo leer la URL del túnel todavía, revisá $LOG_TUNNEL"
+  sleep 3
+  if kill -0 "$(cat "$PID_TUNNEL")" 2>/dev/null; then
+    log "Túnel iniciado. Hostname configurado en $CF_CONFIG"
+  else
+    log "El túnel no arrancó, revisá $LOG_TUNNEL"
+  fi
 }
 
 ensure_venv

@@ -12,3 +12,4 @@ deploy.out
 .uvicorn.pid
 .cloudflared.pid
 tunnel_url.txt
+cloudflared_config.yml
