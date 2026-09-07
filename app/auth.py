@@ -80,6 +80,21 @@ def get_current_user(
     return usuario
 
 
+RESET_TOKEN_DURACION = timedelta(hours=1)
+
+
+def crear_reset_token(db: Session, usuario: models.Usuario) -> models.PasswordResetToken:
+    token = secrets.token_urlsafe(32)
+    reset = models.PasswordResetToken(
+        token=token,
+        usuario_id=usuario.id,
+        expira_en=datetime.utcnow() + RESET_TOKEN_DURACION,
+    )
+    db.add(reset)
+    db.commit()
+    return reset
+
+
 def require_admin(usuario: models.Usuario = Depends(get_current_user)) -> models.Usuario:
     if usuario.rol != models.RolEnum.ADMIN:
         raise HTTPException(status_code=403, detail="Sólo el administrador puede hacer esto")

@@ -32,6 +32,15 @@ class TokenOut(BaseModel):
     usuario: UsuarioOut
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    password: str
+
+
 # ─────────────────────────────────────────────
 # Materia
 # ─────────────────────────────────────────────

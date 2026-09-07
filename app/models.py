@@ -46,6 +46,19 @@ class Sesion(Base):
     usuario = relationship("Usuario")
 
 
+class PasswordResetToken(Base):
+    """Token de un solo uso para el flujo de 'olvidé mi contraseña', enviado
+    por email vía Resend. Corta duración (ver ttl en app/auth.py)."""
+
+    __tablename__ = "password_reset_tokens"
+
+    token = Column(String, primary_key=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
+    creado_en = Column(DateTime, default=datetime.utcnow)
+    expira_en = Column(DateTime, nullable=False)
+    usado = Column(Boolean, nullable=False, default=False)
+
+
 class EstadoEnum(str, enum.Enum):
     PROMOCIONADA = "PROMOCIONADA"
     REGULAR = "REGULAR"
