@@ -1,5 +1,7 @@
 import enum
-from sqlalchemy import Column, Integer, String, ForeignKey, UniqueConstraint, Boolean
+from datetime import datetime
+
+from sqlalchemy import Column, Integer, String, ForeignKey, UniqueConstraint, Boolean, DateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy import Enum as SAEnum
 from app.database import Base
@@ -8,6 +10,40 @@ from app.database import Base
 class TipoPrerequisito(str, enum.Enum):
     REGULARIZADA = "REGULARIZADA"
     APROBADA = "APROBADA"
+
+
+class RolEnum(str, enum.Enum):
+    ADMIN = "ADMIN"
+    USER = "USER"
+
+
+class Usuario(Base):
+    __tablename__ = "usuarios"
+
+    id = Column(Integer, primary_key=True, index=True)
+    # Siempre normalizado a minúscula (ver app.auth.normalizar_email) para que
+    # no importe cómo lo tipeen al loguearse.
+    email = Column(String, unique=True, nullable=False, index=True)
+    password_hash = Column(String, nullable=False)
+    rol = Column(SAEnum(RolEnum), nullable=False, default=RolEnum.USER)
+    creado_en = Column(DateTime, default=datetime.utcnow)
+
+    estados = relationship("EstadoMateria", back_populates="usuario", cascade="all, delete-orphan")
+
+
+class Sesion(Base):
+    """Token de sesión simple (no JWT): opaco, guardado en la base, con
+    vencimiento. Evita depender de librerías con extensiones nativas
+    (bcrypt/pyjwt con binarios) que no compilan fácil en la tablet ARM."""
+
+    __tablename__ = "sesiones"
+
+    token = Column(String, primary_key=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
+    creado_en = Column(DateTime, default=datetime.utcnow)
+    expira_en = Column(DateTime, nullable=False)
+
+    usuario = relationship("Usuario")
 
 
 class EstadoEnum(str, enum.Enum):
@@ -47,11 +83,10 @@ class Materia(Base):
         foreign_keys="Prerequisito.materia_requerida_id",
         back_populates="materia_requerida",
     )
-    # Estado actual del alumno en esta materia
-    estado = relationship(
+    # Estados de esta materia: uno por cada usuario que la haya marcado.
+    estados = relationship(
         "EstadoMateria",
         back_populates="materia",
-        uselist=False,
         cascade="all, delete-orphan",
     )
 
@@ -80,12 +115,22 @@ class EstadoMateria(Base):
     __tablename__ = "estados_materia"
 
     id = Column(Integer, primary_key=True, index=True)
-    materia_id = Column(Integer, ForeignKey("materias.id"), unique=True, nullable=False)
+    materia_id = Column(Integer, ForeignKey("materias.id"), nullable=False)
+    # Nullable a nivel DB solo para permitir la migración de filas "huérfanas"
+    # (progreso cargado antes de que existiera el sistema de usuarios). La
+    # aplicación siempre lo completa al crear una fila nueva.
+    usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
     estado = Column(
         SAEnum(EstadoEnum), nullable=False, default=EstadoEnum.NO_CURSADA
     )
 
-    materia = relationship("Materia", back_populates="estado")
+    materia = relationship("Materia", back_populates="estados")
+    usuario = relationship("Usuario", back_populates="estados")
+
+    __table_args__ = (
+        # Cada usuario tiene a lo sumo un estado por materia (progreso propio).
+        UniqueConstraint("usuario_id", "materia_id", name="uq_estado_usuario_materia"),
+    )
 
 
 class ConfigApp(Base):

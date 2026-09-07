@@ -2,16 +2,16 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db
-from app import models, schemas
+from app import auth, models, schemas
 
 router = APIRouter(prefix="/consultas", tags=["Consultas"])
 
 
-def _estados_map(db: Session) -> dict:
-    """Construye un dict {materia_id: EstadoEnum} para consultas rápidas."""
+def _estados_map(db: Session, usuario_id: int) -> dict:
+    """Construye un dict {materia_id: EstadoEnum} con el progreso DE ESE USUARIO."""
     return {
         e.materia_id: e.estado
-        for e in db.query(models.EstadoMateria).all()
+        for e in db.query(models.EstadoMateria).filter(models.EstadoMateria.usuario_id == usuario_id).all()
     }
 
 
@@ -35,14 +35,17 @@ def _puede_cursar(materia: models.Materia, estados: dict) -> bool:
 
 
 @router.get("/puedo-cursar", response_model=List[schemas.MateriaOut])
-def materias_que_puedo_cursar(db: Session = Depends(get_db)):
+def materias_que_puedo_cursar(
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
     """
-    Devuelve las materias que el alumno PUEDE CURSAR ahora mismo:
+    Devuelve las materias que el USUARIO LOGUEADO puede cursar ahora mismo:
     - Están en estado NO_CURSADA.
     - Todos sus prerequisitos están cumplidos.
     """
     materias = db.query(models.Materia).all()
-    estados = _estados_map(db)
+    estados = _estados_map(db, usuario.id)
 
     return [
         m for m in materias
@@ -52,27 +55,34 @@ def materias_que_puedo_cursar(db: Session = Depends(get_db)):
 
 
 @router.get("/puedo-rendir", response_model=List[schemas.MateriaOut])
-def materias_que_puedo_rendir(db: Session = Depends(get_db)):
+def materias_que_puedo_rendir(
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
     """
-    Devuelve las materias en estado REGULAR (cursadas, pendientes de final).
+    Devuelve las materias en estado REGULAR (cursadas, pendientes de final) DEL USUARIO LOGUEADO.
     """
     estados_db = db.query(models.EstadoMateria).filter(
-        models.EstadoMateria.estado == models.EstadoEnum.REGULAR
+        models.EstadoMateria.estado == models.EstadoEnum.REGULAR,
+        models.EstadoMateria.usuario_id == usuario.id,
     ).all()
     ids_regulares = {e.materia_id for e in estados_db}
     return db.query(models.Materia).filter(models.Materia.id.in_(ids_regulares)).all()
 
 
 @router.get("/plan-completo", response_model=List[schemas.MateriaConEstado])
-def plan_completo(db: Session = Depends(get_db)):
+def plan_completo(
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
     """
-    Devuelve el plan completo: cada materia con su estado actual,
-    si puede cursarse/rendirse, y sus prerequisitos.
+    Devuelve el plan completo: cada materia con el estado actual DEL USUARIO
+    LOGUEADO, si puede cursarse/rendirse, y sus prerequisitos.
     """
     materias = db.query(models.Materia).order_by(
         models.Materia.anio, models.Materia.cuatrimestre, models.Materia.nombre
     ).all()
-    estados = _estados_map(db)
+    estados = _estados_map(db, usuario.id)
 
     resultado = []
     for m in materias:

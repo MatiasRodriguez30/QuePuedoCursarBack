@@ -1,0 +1,60 @@
+from fastapi import APIRouter, Depends, Header, HTTPException
+from sqlalchemy.orm import Session
+
+from app import auth, models, schemas
+from app.database import get_db
+
+router = APIRouter(prefix="/auth", tags=["Auth"])
+
+
+@router.post("/register", response_model=schemas.TokenOut, status_code=201)
+def registrar(datos: schemas.RegisterRequest, db: Session = Depends(get_db)):
+    """Crea una cuenta nueva. El email decide el rol: los que están en la
+    lista ADMIN_EMAILS (ver app/auth.py) quedan ADMIN, el resto USER."""
+    email = auth.normalizar_email(datos.email)
+    if not datos.password or len(datos.password) < 6:
+        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 6 caracteres")
+
+    existente = db.query(models.Usuario).filter(models.Usuario.email == email).first()
+    if existente:
+        raise HTTPException(status_code=400, detail="Ya existe una cuenta con ese email")
+
+    usuario = models.Usuario(
+        email=email,
+        password_hash=auth.hash_password(datos.password),
+        rol=auth.rol_para_email(email),
+    )
+    db.add(usuario)
+    db.commit()
+    db.refresh(usuario)
+
+    sesion = auth.crear_sesion(db, usuario)
+    return schemas.TokenOut(token=sesion.token, usuario=schemas.UsuarioOut.from_orm(usuario))
+
+
+@router.post("/login", response_model=schemas.TokenOut)
+def login(datos: schemas.LoginRequest, db: Session = Depends(get_db)):
+    email = auth.normalizar_email(datos.email)
+    usuario = db.query(models.Usuario).filter(models.Usuario.email == email).first()
+    if not usuario or not auth.verify_password(datos.password, usuario.password_hash):
+        raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
+
+    sesion = auth.crear_sesion(db, usuario)
+    return schemas.TokenOut(token=sesion.token, usuario=schemas.UsuarioOut.from_orm(usuario))
+
+
+@router.get("/me", response_model=schemas.UsuarioOut)
+def yo(usuario: models.Usuario = Depends(auth.get_current_user)):
+    return usuario
+
+
+@router.post("/logout", status_code=204)
+def logout(
+    authorization: str = Header(None),
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),  # valida que el token sea legítimo
+):
+    """Invalida la sesión actual (el token deja de servir)."""
+    token = authorization[len("Bearer "):].strip()
+    db.query(models.Sesion).filter(models.Sesion.token == token).delete()
+    db.commit()

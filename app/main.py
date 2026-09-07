@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine
 from app import models
 from app.ws_manager import manager
-from app.routers import materias, prerequisitos, estados, consultas, config
+from app.routers import materias, prerequisitos, estados, consultas, config, auth
 
 # Crea las tablas si no existen
 models.Base.metadata.create_all(bind=engine)
@@ -41,6 +41,7 @@ app.add_middleware(
 )
 
 # Routers REST
+app.include_router(auth.router)
 app.include_router(materias.router)
 app.include_router(prerequisitos.router)
 app.include_router(estados.router)

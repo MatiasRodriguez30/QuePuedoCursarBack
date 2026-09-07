@@ -3,22 +3,29 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app import models, schemas
+from app import auth, models, schemas
 from app.ws_manager import manager
 
 router = APIRouter(prefix="/prerequisitos", tags=["Prerequisitos"])
 
 
 @router.get("", response_model=List[schemas.PrerequisitoOut])
-def listar_prerequisitos(db: Session = Depends(get_db)):
+def listar_prerequisitos(
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
     """Lista todos los prerequisitos definidos."""
     return db.query(models.Prerequisito).all()
 
 
 @router.post("", response_model=schemas.PrerequisitoOut, status_code=201)
-async def crear_prerequisito(prereq: schemas.PrerequisitoCreate, db: Session = Depends(get_db)):
-    """Agrega un prerequisito a una materia.
-    
+async def crear_prerequisito(
+    prereq: schemas.PrerequisitoCreate,
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(auth.require_admin),
+):
+    """Agrega un prerequisito a una materia (sólo ADMIN).
+
     - tipo REGULARIZADA: la materia requerida debe estar en estado REGULAR o PROMOCIONADA.
     - tipo APROBADA: la materia requerida debe estar en estado PROMOCIONADA.
     """
@@ -50,8 +57,12 @@ async def crear_prerequisito(prereq: schemas.PrerequisitoCreate, db: Session = D
 
 
 @router.delete("/{prereq_id}", status_code=204)
-async def eliminar_prerequisito(prereq_id: int, db: Session = Depends(get_db)):
-    """Elimina un prerequisito por su ID."""
+async def eliminar_prerequisito(
+    prereq_id: int,
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(auth.require_admin),
+):
+    """Elimina un prerequisito por su ID (sólo ADMIN)."""
     prereq = db.query(models.Prerequisito).filter(models.Prerequisito.id == prereq_id).first()
     if not prereq:
         raise HTTPException(status_code=404, detail="Prerequisito no encontrado")

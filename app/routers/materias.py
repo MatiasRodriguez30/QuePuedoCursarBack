@@ -3,25 +3,34 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app import models, schemas
+from app import auth, models, schemas
 from app.ws_manager import manager
 
 router = APIRouter(prefix="/materias", tags=["Materias"])
 
 
 @router.get("", response_model=List[schemas.MateriaOut])
-def listar_materias(db: Session = Depends(get_db)):
-    """Devuelve todas las materias del plan de estudios."""
+def listar_materias(
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
+    """Devuelve todas las materias del plan de estudios (cualquier usuario logueado puede ver el plan)."""
     return db.query(models.Materia).order_by(models.Materia.anio, models.Materia.cuatrimestre, models.Materia.nombre).all()
 
 
 @router.post("", response_model=schemas.MateriaOut, status_code=201)
-async def crear_materia(materia: schemas.MateriaCreate, db: Session = Depends(get_db)):
-    """Crea una nueva materia. Le asigna automáticamente estado NO_CURSADA.
+async def crear_materia(
+    materia: schemas.MateriaCreate,
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(auth.require_admin),
+):
+    """Crea una nueva materia (sólo ADMIN).
 
     El código es opcional: si no se especifica uno manualmente, se autogenera
     a partir del ID interno que le asigna la base de datos (por eso primero
-    se necesita el flush, antes de fijar el código definitivo).
+    se necesita el flush, antes de fijar el código definitivo). El estado de
+    esta materia para cada usuario se crea recién cuando cada uno la marca
+    por primera vez (ver PUT /estados/{materia_id}).
     """
     codigo_manual = (materia.codigo or "").strip() or None
 
@@ -39,8 +48,6 @@ async def crear_materia(materia: schemas.MateriaCreate, db: Session = Depends(ge
     if not codigo_manual:
         db_materia.codigo = str(db_materia.id)
 
-    estado = models.EstadoMateria(materia_id=db_materia.id, estado=models.EstadoEnum.NO_CURSADA)
-    db.add(estado)
     db.commit()
     db.refresh(db_materia)
 
@@ -49,7 +56,11 @@ async def crear_materia(materia: schemas.MateriaCreate, db: Session = Depends(ge
 
 
 @router.get("/{materia_id}", response_model=schemas.MateriaOut)
-def obtener_materia(materia_id: int, db: Session = Depends(get_db)):
+def obtener_materia(
+    materia_id: int,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
     """Obtiene una materia por ID."""
     materia = db.query(models.Materia).filter(models.Materia.id == materia_id).first()
     if not materia:
@@ -58,7 +69,12 @@ def obtener_materia(materia_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/{materia_id}", response_model=schemas.MateriaOut)
-async def actualizar_materia(materia_id: int, datos: schemas.MateriaUpdate, db: Session = Depends(get_db)):
+async def actualizar_materia(
+    materia_id: int,
+    datos: schemas.MateriaUpdate,
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(auth.require_admin),
+):
     """Actualiza los datos de una materia.
 
     Si se manda `codigo` vacío, se regenera a partir del ID interno (igual que en creación).
@@ -91,8 +107,12 @@ async def actualizar_materia(materia_id: int, datos: schemas.MateriaUpdate, db: 
 
 
 @router.delete("/{materia_id}", status_code=204)
-async def eliminar_materia(materia_id: int, db: Session = Depends(get_db)):
-    """Elimina una materia y todos sus prerequisitos asociados."""
+async def eliminar_materia(
+    materia_id: int,
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(auth.require_admin),
+):
+    """Elimina una materia y todos sus prerequisitos asociados (sólo ADMIN)."""
     materia = db.query(models.Materia).filter(models.Materia.id == materia_id).first()
     if not materia:
         raise HTTPException(status_code=404, detail="Materia no encontrada")
@@ -104,7 +124,11 @@ async def eliminar_materia(materia_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{materia_id}/prerequisitos", response_model=List[schemas.PrerequisitoOut])
-def prerequisitos_de_materia(materia_id: int, db: Session = Depends(get_db)):
+def prerequisitos_de_materia(
+    materia_id: int,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
     """Lista los prerequisitos de una materia específica."""
     materia = db.query(models.Materia).filter(models.Materia.id == materia_id).first()
     if not materia:

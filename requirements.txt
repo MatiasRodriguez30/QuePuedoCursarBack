@@ -8,3 +8,6 @@ uvicorn>=0.29.0
 sqlalchemy>=2.0.0
 pydantic>=1.10.13,<2.0.0
 websockets>=12.0
+# starlette 0.27 (que trae fastapi 0.95.2) no es compatible con anyio 4.x
+# (rompe con "module 'anyio' has no attribute 'to_thread'").
+anyio<4

@@ -1,7 +1,35 @@
 from __future__ import annotations
 from typing import Optional, List
 from pydantic import BaseModel
-from app.models import TipoPrerequisito, EstadoEnum
+from app.models import TipoPrerequisito, EstadoEnum, RolEnum
+
+
+# ─────────────────────────────────────────────
+# Auth
+# ─────────────────────────────────────────────
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class UsuarioOut(BaseModel):
+    id: int
+    email: str
+    rol: RolEnum
+
+    class Config:
+        orm_mode = True
+
+
+class TokenOut(BaseModel):
+    token: str
+    usuario: UsuarioOut
 
 
 # ─────────────────────────────────────────────
@@ -71,6 +99,7 @@ class EstadoMateriaUpdate(BaseModel):
 
 class EstadoMateriaOut(BaseModel):
     materia_id: int
+    usuario_id: int
     estado: EstadoEnum
     materia: MateriaOut
 
