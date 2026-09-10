@@ -133,6 +133,30 @@ Esto:
    `git reset --hard`, reinstala dependencias si cambió `requirements.txt`,
    y reinicia `uvicorn` — sin downtime del túnel.
 
+### Que se levante solo si la tablet se reinicia
+
+Termux no tiene forma nativa de arrancar procesos al bootear el dispositivo
+(eso requeriría la app aparte **Termux:Boot**, no instalada). En cambio,
+`~/.bashrc` en la tablet tiene este chequeo, que corre en **cualquier sesión
+nueva** (abrir la app de Termux, o simplemente conectarse por SSH — el sshd
+de Termux corre como servicio de fondo persistente):
+
+```bash
+# ~/.bashrc
+QPC_DIR="$HOME/QuePuedoCursarBack"
+if [ -d "$QPC_DIR" ] && ! pgrep -f 'deploy/tablet_run.sh' > /dev/null 2>&1; then
+  termux-wake-lock >/dev/null 2>&1
+  ( cd "$QPC_DIR" && nohup bash deploy/tablet_run.sh > deploy.out 2>&1 & disown )
+  echo '[Qué Puedo Cursar] No estaba corriendo, lo arranqué solo.'
+fi
+```
+
+Con esto, apenas alguien (vos, tu novia, o un `ssh` de chequeo) toca la
+tablet después de un reinicio, todo se vuelve a levantar solo — no hace
+falta acordarse de correr nada a mano. Sigue sin ser "apenas prende el
+dispositivo" (para eso sí hace falta Termux:Boot), pero cubre el caso real
+que nos pasó: un corte de luz o reinicio, y la primera conexión SSH lo repara.
+
 ### Logs y control manual
 
 ```bash
