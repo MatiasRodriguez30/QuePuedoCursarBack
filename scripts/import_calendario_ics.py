@@ -24,6 +24,7 @@ Es seguro correr este script más de una vez: usa el UID de cada VEVENT
 Uso:
     python scripts/import_calendario_ics.py archivo.ics
 """
+import html
 import re
 import sys
 from datetime import datetime, timedelta
@@ -35,6 +36,30 @@ from app.database import SessionLocal
 from app import models
 
 OFFSET_ARGENTINA = timedelta(hours=-3)
+
+_RE_BR = re.compile(r"<br\s*/?>", re.IGNORECASE)
+_RE_CIERRE_PARRAFO = re.compile(r"</p>", re.IGNORECASE)
+_RE_TAG = re.compile(r"<[^>]+>")
+_RE_SALTOS_DE_MAS = re.compile(r"\n{3,}")
+
+
+def limpiar_html(texto: str) -> str:
+    """Algunas DESCRIPTION de este calendario (las cargadas a mano por
+    Bedelía/Secretaría, a diferencia de las generadas por Google) traen
+    HTML crudo en vez de texto plano (`<p>`, `<b>`, `&nbsp;`) — sin esto,
+    se mostraban los tags literales en la agenda y encima cortaban el
+    texto real (qué materias entran en cada mesa de examen)."""
+    if not texto:
+        return texto
+    texto = _RE_BR.sub("\n", texto)
+    texto = _RE_CIERRE_PARRAFO.sub("\n", texto)
+    texto = _RE_TAG.sub("", texto)
+    texto = html.unescape(texto).replace("\xa0", " ")
+    texto = "\n".join(linea.rstrip() for linea in texto.split("\n"))
+    # <p><br></p> (separador vacío entre secciones) puede generar 3+ saltos
+    # seguidos; los dejamos en máximo un renglón en blanco.
+    texto = _RE_SALTOS_DE_MAS.sub("\n\n", texto)
+    return texto.strip()
 
 
 def desplegar_lineas(texto: str):
@@ -92,7 +117,7 @@ def parsear_eventos(contenido: str):
             if linea.startswith("SUMMARY:"):
                 actual["titulo"] = desescapar(linea[len("SUMMARY:"):])
             elif linea.startswith("DESCRIPTION:"):
-                actual["descripcion"] = desescapar(linea[len("DESCRIPTION:"):])
+                actual["descripcion"] = limpiar_html(desescapar(linea[len("DESCRIPTION:"):]))
             elif linea.startswith("LOCATION:"):
                 actual["ubicacion"] = desescapar(linea[len("LOCATION:"):]) or None
             elif linea.startswith("UID:"):
