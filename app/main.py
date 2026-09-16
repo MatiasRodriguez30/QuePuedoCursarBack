@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Depends
@@ -10,7 +11,8 @@ from sqlalchemy.orm import Session
 from app import auth, models
 from app.database import engine, get_db
 from app.ws_manager import manager
-from app.routers import materias, prerequisitos, estados, consultas, config, auth as auth_router
+from app.scheduler import loop_recordatorios
+from app.routers import materias, prerequisitos, estados, consultas, config, eventos, auth as auth_router
 
 # Crea las tablas si no existen
 models.Base.metadata.create_all(bind=engine)
@@ -48,6 +50,7 @@ app = FastAPI(
         "| `prerequisito_creado` | Nuevo prerequisito |\n"
         "| `prerequisito_eliminado` | Prerequisito eliminado |\n"
         "| `estado_actualizado` | Estado de materia cambiado |\n"
+        "| `evento_creado` / `evento_actualizado` / `evento_eliminado` | Cambios en la agenda |\n"
     ),
     version="1.0.0",
 )
@@ -71,6 +74,12 @@ app.include_router(prerequisitos.router)
 app.include_router(estados.router)
 app.include_router(consultas.router)
 app.include_router(config.router)
+app.include_router(eventos.router)
+
+
+@app.on_event("startup")
+async def iniciar_scheduler():
+    asyncio.create_task(loop_recordatorios())
 
 
 # ─── WebSocket (FIX 2) ────────────────────────────────────────────────────────

@@ -1,0 +1,145 @@
+"""
+Importa (una sola vez) el calendario institucional de UTN desde un archivo
+.ics exportado de Google Calendar a la tabla `eventos`, como snapshot fijo
+(sin sincronización en vivo — para eso habría que correr este script de
+nuevo con un .ics actualizado).
+
+Parser propio y minimalista (sin agregar la librería `icalendar` como
+dependencia): sólo soporta los campos y formatos de fecha que efectivamente
+aparecen en este calendario (ver notas abajo). No expande RRULE — se
+comprobó que todas las series recurrentes de este archivo ya terminaron
+(UNTIL en el pasado), así que sólo importar el DTSTART de cada VEVENT no
+pierde ninguna fecha futura.
+
+Formatos de DTSTART soportados:
+  - `;VALUE=DATE:YYYYMMDD`                 -> evento de todo el día
+  - `:YYYYMMDDTHHMMSSZ`                    -> UTC, se convierte a hora local
+  - `;TZID=America/...:YYYYMMDDTHHMMSS`    -> ya es hora local (Argentina no
+    tiene horario de verano desde 2009, así que toda TZID en este archivo es
+    UTC-3 fijo, sin importar cuál de las dos zonas diga exactamente).
+
+Es seguro correr este script más de una vez: usa el UID de cada VEVENT
+(columna `uid_ics`, única) para no duplicar eventos ya importados.
+
+Uso:
+    python scripts/import_calendario_ics.py archivo.ics
+"""
+import re
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from app.database import SessionLocal
+from app import models
+
+OFFSET_ARGENTINA = timedelta(hours=-3)
+
+
+def desplegar_lineas(texto: str):
+    """RFC5545: una línea de continuación empieza con un espacio o tab y hay
+    que unirla a la anterior (si no, DESCRIPTION largo queda cortado)."""
+    lineas = texto.replace("\r\n", "\n").split("\n")
+    resultado = []
+    for linea in lineas:
+        if linea.startswith(" ") or linea.startswith("\t"):
+            if resultado:
+                resultado[-1] += linea[1:]
+        else:
+            resultado.append(linea)
+    return resultado
+
+
+def desescapar(valor: str) -> str:
+    return (
+        valor.replace("\\n", "\n").replace("\\N", "\n")
+        .replace("\\,", ",").replace("\\;", ";").replace("\\\\", "\\")
+    )
+
+
+def parsear_dtstart(linea: str):
+    """Devuelve (fecha, hora_o_None) a partir de una línea DTSTART completa."""
+    clave, valor = linea.split(":", 1)
+
+    if "VALUE=DATE" in clave:
+        d = datetime.strptime(valor, "%Y%m%d").date()
+        return d, None
+
+    if valor.endswith("Z"):
+        dt_utc = datetime.strptime(valor, "%Y%m%dT%H%M%SZ")
+        dt_local = dt_utc + OFFSET_ARGENTINA
+        return dt_local.date(), dt_local.time()
+
+    # TZID=America/... (Buenos Aires o Araguaina, ambas UTC-3 fijo en este archivo)
+    dt = datetime.strptime(valor, "%Y%m%dT%H%M%S")
+    return dt.date(), dt.time()
+
+
+def parsear_eventos(contenido: str):
+    lineas = desplegar_lineas(contenido)
+    eventos = []
+    actual = None
+
+    for linea in lineas:
+        if linea == "BEGIN:VEVENT":
+            actual = {}
+        elif linea == "END:VEVENT":
+            if actual and "fecha" in actual and "titulo" in actual:
+                eventos.append(actual)
+            actual = None
+        elif actual is not None:
+            if linea.startswith("SUMMARY:"):
+                actual["titulo"] = desescapar(linea[len("SUMMARY:"):])
+            elif linea.startswith("DESCRIPTION:"):
+                actual["descripcion"] = desescapar(linea[len("DESCRIPTION:"):])
+            elif linea.startswith("LOCATION:"):
+                actual["ubicacion"] = desescapar(linea[len("LOCATION:"):]) or None
+            elif linea.startswith("UID:"):
+                actual["uid_ics"] = linea[len("UID:"):]
+            elif linea.startswith("DTSTART"):
+                fecha, hora = parsear_dtstart(linea)
+                actual["fecha"] = fecha
+                actual["hora_inicio"] = hora
+
+    return eventos
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("Uso: python scripts/import_calendario_ics.py archivo.ics")
+        sys.exit(1)
+
+    ruta = Path(sys.argv[1])
+    contenido = ruta.read_text(encoding="utf-8")
+    eventos = parsear_eventos(contenido)
+    print(f"Parseados {len(eventos)} eventos del archivo.")
+
+    db = SessionLocal()
+    try:
+        existentes = {
+            uid for (uid,) in db.query(models.Evento.uid_ics).filter(models.Evento.uid_ics.isnot(None))
+        }
+        nuevos = 0
+        for ev in eventos:
+            uid = ev.get("uid_ics")
+            if uid and uid in existentes:
+                continue
+            db.add(models.Evento(
+                titulo=ev["titulo"],
+                descripcion=ev.get("descripcion"),
+                ubicacion=ev.get("ubicacion"),
+                fecha=ev["fecha"],
+                hora_inicio=ev.get("hora_inicio"),
+                origen=models.OrigenEvento.IMPORTADO,
+                uid_ics=uid,
+            ))
+            nuevos += 1
+        db.commit()
+        print(f"Insertados {nuevos} eventos nuevos ({len(eventos) - nuevos} ya existían).")
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    main()

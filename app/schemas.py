@@ -1,7 +1,8 @@
 from __future__ import annotations
+from datetime import date, time
 from typing import Optional, List
 from pydantic import BaseModel
-from app.models import TipoPrerequisito, EstadoEnum, RolEnum
+from app.models import TipoPrerequisito, EstadoEnum, RolEnum, OrigenEvento
 
 
 # ─────────────────────────────────────────────
@@ -142,6 +143,43 @@ class ConfigUpdate(BaseModel):
 class ConfigOut(BaseModel):
     anio_actual: Optional[int] = None
     cuatrimestre_actual: Optional[int] = None
+
+    class Config:
+        orm_mode = True
+
+
+# ─────────────────────────────────────────────
+# Evento (agenda)
+# ─────────────────────────────────────────────
+
+class EventoCreate(BaseModel):
+    titulo: str
+    descripcion: Optional[str] = None
+    ubicacion: Optional[str] = None
+    fecha: date
+    hora_inicio: Optional[time] = None
+    hora_fin: Optional[time] = None
+
+
+class EventoUpdate(BaseModel):
+    titulo: Optional[str] = None
+    descripcion: Optional[str] = None
+    ubicacion: Optional[str] = None
+    fecha: Optional[date] = None
+    hora_inicio: Optional[time] = None
+    hora_fin: Optional[time] = None
+
+
+class EventoOut(BaseModel):
+    id: int
+    titulo: str
+    descripcion: Optional[str] = None
+    ubicacion: Optional[str] = None
+    fecha: date
+    hora_inicio: Optional[time] = None
+    hora_fin: Optional[time] = None
+    origen: OrigenEvento
+    creado_por_id: Optional[int] = None
 
     class Config:
         orm_mode = True

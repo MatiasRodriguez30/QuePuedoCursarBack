@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, ForeignKey, UniqueConstraint, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, ForeignKey, UniqueConstraint, Boolean, DateTime, Date, Time, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy import Enum as SAEnum
 from app.database import Base
@@ -157,3 +157,32 @@ class ConfigApp(Base):
     id = Column(Integer, primary_key=True, default=1)
     anio_actual = Column(Integer, nullable=True)
     cuatrimestre_actual = Column(Integer, nullable=True)  # 1 o 2
+
+
+class OrigenEvento(str, enum.Enum):
+    MANUAL = "MANUAL"
+    IMPORTADO = "IMPORTADO"  # cargado desde el calendario .ics de UTN
+
+
+class Evento(Base):
+    """Agenda compartida entre todos los usuarios (institucional + personal).
+    No hay progreso por-usuario acá como en EstadoMateria: cualquier usuario
+    logueado ve todos los eventos, sólo un ADMIN puede crear/editar/borrar."""
+
+    __tablename__ = "eventos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    titulo = Column(String, nullable=False)
+    descripcion = Column(Text, nullable=True)
+    ubicacion = Column(String, nullable=True)
+    fecha = Column(Date, nullable=False, index=True)
+    hora_inicio = Column(Time, nullable=True)  # null = evento de todo el día
+    hora_fin = Column(Time, nullable=True)
+    origen = Column(SAEnum(OrigenEvento), nullable=False, default=OrigenEvento.MANUAL)
+    # UID del VEVENT de origen, sólo para eventos IMPORTADOs: evita duplicar
+    # si el script de importación se corre más de una vez sobre el mismo .ics.
+    uid_ics = Column(String, unique=True, nullable=True)
+    creado_por_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+    creado_en = Column(DateTime, default=datetime.utcnow)
+
+    creado_por = relationship("Usuario")
