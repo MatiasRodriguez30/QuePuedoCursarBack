@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
 from app import auth, models, schemas
@@ -9,12 +11,14 @@ from app.database import get_db
 from app.email_utils import enviar_email
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
+limiter = Limiter(key_func=get_remote_address)
 
 
 @router.post("/register", response_model=schemas.TokenOut, status_code=201)
-def registrar(datos: schemas.RegisterRequest, db: Session = Depends(get_db)):
-    """Crea una cuenta nueva. El email decide el rol: los que están en la
-    lista ADMIN_EMAILS (ver app/auth.py) quedan ADMIN, el resto USER."""
+@limiter.limit("5/minute")
+def registrar(request: Request, datos: schemas.RegisterRequest, db: Session = Depends(get_db)):
+    """Crea una cuenta nueva. Todos los usuarios nuevos quedan con rol USER.
+    Para elevar a ADMIN usar el script: python scripts/make_admin.py <email>"""
     email = auth.normalizar_email(datos.email)
     if not datos.password or len(datos.password) < 6:
         raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 6 caracteres")
@@ -26,7 +30,7 @@ def registrar(datos: schemas.RegisterRequest, db: Session = Depends(get_db)):
     usuario = models.Usuario(
         email=email,
         password_hash=auth.hash_password(datos.password),
-        rol=auth.rol_para_email(email),
+        rol=models.RolEnum.USER,
     )
     db.add(usuario)
     db.commit()
@@ -37,7 +41,8 @@ def registrar(datos: schemas.RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=schemas.TokenOut)
-def login(datos: schemas.LoginRequest, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def login(request: Request, datos: schemas.LoginRequest, db: Session = Depends(get_db)):
     email = auth.normalizar_email(datos.email)
     usuario = db.query(models.Usuario).filter(models.Usuario.email == email).first()
     if not usuario or not auth.verify_password(datos.password, usuario.password_hash):
@@ -65,7 +70,9 @@ def logout(
 
 
 @router.post("/forgot-password", status_code=202)
+@limiter.limit("3/minute")
 def olvide_password(
+    request: Request,
     datos: schemas.ForgotPasswordRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),

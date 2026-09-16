@@ -1,0 +1,13 @@
+# Sólo para desarrollo/testing local — NO se instala en la tablet (el
+# deploy loop solo corre `pip install -r requirements.txt`, este archivo
+# es aparte a propósito para no gastar espacio/tiempo en el dispositivo).
+-r requirements.txt
+
+# httpx y pytest son puro Python (sin extensiones Rust), compatibles con
+# Pydantic v1. pytest-asyncio>=0.21 necesita asyncio_mode=auto en pytest.ini.
+# httpx<0.28: la 0.28 sacó el atajo Client(app=...) que usa el TestClient de
+# starlette 0.27 (la que trae fastapi==0.95.2) -> rompe con
+# "TypeError: Client.__init__() got an unexpected keyword argument 'app'".
+httpx>=0.24.0,<0.28
+pytest>=7.0.0
+pytest-asyncio>=0.21.0

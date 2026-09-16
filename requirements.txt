@@ -11,3 +11,6 @@ websockets>=12.0
 # starlette 0.27 (que trae fastapi 0.95.2) no es compatible con anyio 4.x
 # (rompe con "module 'anyio' has no attribute 'to_thread'").
 anyio<4
+# Rate limiting para /auth/* (puro Python, sin extensiones Rust — compatible
+# con Pydantic v1 y con Python 3.8 en la tablet ARM).
+slowapi>=0.1.9

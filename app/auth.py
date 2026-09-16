@@ -3,6 +3,9 @@ Autenticación simple y gratuita: contraseñas hasheadas con PBKDF2-HMAC-SHA256
 (módulo `hashlib` de la librería estándar — sin bcrypt/argon2, que tienen
 extensiones nativas que no compilan fácil en la tablet ARM) y tokens de
 sesión opacos guardados en la base (sin JWT, un dependencia menos).
+
+Roles: todos los nuevos usuarios quedan como RolEnum.USER por defecto.
+Para elevar a ADMIN usar el script: python scripts/make_admin.py <email>
 """
 import hashlib
 import secrets
@@ -17,18 +20,9 @@ from app.database import get_db
 PBKDF2_ITERATIONS = 200_000
 SESION_DURACION = timedelta(days=30)
 
-# Emails con rol ADMIN de entrada (pueden editar materias/prerequisitos/config).
-# Cualquier otro email que se registre queda como usuario normal (solo su propio
-# progreso). Comparación siempre en minúscula: ver normalizar_email().
-ADMIN_EMAILS = {"l390585@gmail.com", "mikapaco14@gmail.com"}
-
 
 def normalizar_email(email: str) -> str:
     return email.strip().lower()
-
-
-def rol_para_email(email: str) -> "models.RolEnum":
-    return models.RolEnum.ADMIN if normalizar_email(email) in ADMIN_EMAILS else models.RolEnum.USER
 
 
 def hash_password(password: str) -> str:
@@ -77,6 +71,25 @@ def get_current_user(
     usuario = db.query(models.Usuario).filter(models.Usuario.id == sesion.usuario_id).first()
     if not usuario:
         raise HTTPException(status_code=401, detail="Usuario no encontrado")
+    return usuario
+
+
+def get_user_from_token(token: str, db: Session) -> models.Usuario:
+    """Variante de get_current_user para WebSocket: recibe el token directamente
+    (no desde el header HTTP). Devuelve None si el token es inválido o expirado,
+    en lugar de lanzar HTTPException, para que el caller pueda cerrar el WS
+    con el código adecuado (4001).
+    """
+    if not token:
+        return None
+    sesion = db.query(models.Sesion).filter(models.Sesion.token == token).first()
+    if not sesion:
+        return None
+    if sesion.expira_en < datetime.utcnow():
+        db.delete(sesion)
+        db.commit()
+        return None
+    usuario = db.query(models.Usuario).filter(models.Usuario.id == sesion.usuario_id).first()
     return usuario
 
 
