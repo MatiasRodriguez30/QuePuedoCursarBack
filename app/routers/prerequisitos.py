@@ -9,6 +9,29 @@ from app.ws_manager import manager
 router = APIRouter(prefix="/prerequisitos", tags=["Prerequisitos"])
 
 
+def _generaria_ciclo(db: Session, materia_id: int, materia_requerida_id: int) -> bool:
+    """True si agregar "materia_id requiere materia_requerida_id" cerraría un
+    ciclo (A->B->C->A), dejando esa cadena imposible de cumplir jamás.
+    BFS desde materia_requerida_id seguiendo la cadena de "requiere": si se
+    llega de vuelta a materia_id, hay ciclo."""
+    visitados = {materia_requerida_id}
+    cola = [materia_requerida_id]
+    while cola:
+        actual = cola.pop()
+        if actual == materia_id:
+            return True
+        siguientes = (
+            db.query(models.Prerequisito.materia_requerida_id)
+            .filter(models.Prerequisito.materia_id == actual)
+            .all()
+        )
+        for (siguiente,) in siguientes:
+            if siguiente not in visitados:
+                visitados.add(siguiente)
+                cola.append(siguiente)
+    return False
+
+
 @router.get("", response_model=List[schemas.PrerequisitoOut])
 def listar_prerequisitos(
     carrera_id: int = Query(..., description="Sólo se listan los prerequisitos de materias de esta carrera"),
@@ -55,6 +78,9 @@ async def crear_prerequisito(
     ).first()
     if existente:
         raise HTTPException(status_code=400, detail="Este prerequisito ya existe")
+
+    if _generaria_ciclo(db, prereq.materia_id, prereq.materia_requerida_id):
+        raise HTTPException(status_code=400, detail="No se puede agregar: genera una correlatividad circular")
 
     db_prereq = models.Prerequisito(**prereq.dict())
     db.add(db_prereq)

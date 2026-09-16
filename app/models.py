@@ -119,10 +119,15 @@ class Materia(Base):
         cascade="all, delete-orphan",
     )
     # Relaciones donde esta materia ES requerida por otras
+    # cascade: si se borra esta materia, también se borran los prerequisitos
+    # de OTRAS materias que la exigían a ella (si no, quedan filas huérfanas
+    # con materia_requerida_id apuntando a un id inexistente y la próxima
+    # serialización de /prerequisitos revienta con 500).
     requerida_por = relationship(
         "Prerequisito",
         foreign_keys="Prerequisito.materia_requerida_id",
         back_populates="materia_requerida",
+        cascade="all, delete-orphan",
     )
     # Estados de esta materia: uno por cada usuario que la haya marcado.
     estados = relationship(

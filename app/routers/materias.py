@@ -1,3 +1,4 @@
+import secrets
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -54,8 +55,11 @@ async def crear_materia(
             raise HTTPException(status_code=400, detail=f"Ya existe una materia con código '{codigo_manual}' en esta carrera")
 
     datos = materia.dict(exclude={"codigo"})
-    # Placeholder temporal mientras no conocemos el ID (la columna es NOT NULL + UNIQUE).
-    db_materia = models.Materia(codigo=codigo_manual or "__pendiente__", **datos)
+    # Placeholder temporal único mientras no conocemos el ID (la columna es
+    # NOT NULL + UNIQUE por carrera): con un literal fijo, dos creaciones
+    # concurrentes sin código en la misma carrera colisionarían con 500.
+    placeholder = codigo_manual or f"__tmp_{secrets.token_hex(4)}__"
+    db_materia = models.Materia(codigo=placeholder, **datos)
     db.add(db_materia)
     db.flush()  # para obtener el id antes del commit
 

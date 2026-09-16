@@ -1,15 +1,14 @@
 import asyncio
 import os
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Depends
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from sqlalchemy.orm import Session
 
 from app import auth, models
-from app.database import engine, get_db
+from app.database import engine, SessionLocal
 from app.ws_manager import manager
 from app.scheduler import loop_recordatorios
 from app.routers import materias, prerequisitos, estados, consultas, config, eventos, carreras, usuarios, auth as auth_router
@@ -91,7 +90,6 @@ async def iniciar_scheduler():
 async def websocket_endpoint(
     websocket: WebSocket,
     token: str = Query(default=None),
-    db: Session = Depends(get_db),
 ):
     """
     Endpoint WebSocket autenticado.
@@ -105,7 +103,11 @@ async def websocket_endpoint(
     mantener la conexión viva. El servidor emite eventos JSON:
     {"event": "<nombre_evento>", "data": {...}}
     """
-    usuario = auth.get_user_from_token(token, db)
+    # Sesión efímera sólo para validar el token: si quedara inyectada como
+    # Depends(get_db) para toda la conexión, se mantiene abierta en el pool
+    # mientras el WS esté conectado (horas/días), no mientras dura el request.
+    with SessionLocal() as db:
+        usuario = auth.get_user_from_token(token, db)
     if usuario is None:
         await websocket.close(code=4001)
         return
@@ -115,6 +117,8 @@ async def websocket_endpoint(
         while True:
             await websocket.receive_text()  # mantener la conexión activa
     except WebSocketDisconnect:
+        pass
+    finally:
         manager.disconnect(websocket)
 
 

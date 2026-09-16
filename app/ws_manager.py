@@ -23,7 +23,10 @@ class ConnectionManager:
         """Envía un evento a todos los clientes conectados."""
         message = json.dumps({"event": event, "data": data}, default=str)
         dead = []
-        for connection in self.active_connections:
+        # Copia de la lista: un disconnect() concurrente durante el await de
+        # abajo (otro cliente cerrando conexión a la vez) no debe mutar la
+        # lista mientras la estamos recorriendo.
+        for connection in list(self.active_connections):
             try:
                 await connection.send_text(message)
             except Exception:

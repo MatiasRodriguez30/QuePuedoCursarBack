@@ -78,7 +78,11 @@ async def loop_recordatorios():
         espera = _segundos_hasta_proximo_envio()
         await asyncio.sleep(espera)
         try:
-            enviar_recordatorios_del_dia_siguiente()
+            # enviar_recordatorios_del_dia_siguiente() hace llamadas HTTP
+            # bloqueantes (urllib) para mandar los mails; llamarla directo acá
+            # congelaría TODA la API (HTTP y WebSockets) mientras dura el
+            # envío. to_thread la corre en un hilo aparte sin bloquear el loop.
+            await asyncio.to_thread(enviar_recordatorios_del_dia_siguiente)
         except Exception:
             logger.exception("Error enviando recordatorios diarios")
         # Margen para no re-disparar dos veces si el reloj cae justo en el borde.

@@ -52,7 +52,14 @@ start_uvicorn() {
     sleep 2
   fi
   log "Arrancando uvicorn en :$PORT ..."
-  nohup "$VENV_DIR/bin/python" -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT" >> "$LOG_UVICORN" 2>&1 &
+  # --proxy-headers + --forwarded-allow-ips=127.0.0.1: sin esto, todo pedido
+  # que llega vía el túnel de Cloudflare (siempre por loopback) se ve como si
+  # viniera de 127.0.0.1, y el rate limiting de /auth/* termina compartiendo
+  # el mismo contador entre TODOS los usuarios reales en vez de por IP. Se
+  # restringe a 127.0.0.1 (no '*') para que nadie más en la LAN pueda
+  # falsificar X-Forwarded-For y esquivar el límite.
+  nohup "$VENV_DIR/bin/python" -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT" \
+    --proxy-headers --forwarded-allow-ips="127.0.0.1" >> "$LOG_UVICORN" 2>&1 &
   echo $! > "$PID_UVICORN"
 }
 
