@@ -12,7 +12,7 @@ from app import auth, models
 from app.database import engine, get_db
 from app.ws_manager import manager
 from app.scheduler import loop_recordatorios
-from app.routers import materias, prerequisitos, estados, consultas, config, eventos, auth as auth_router
+from app.routers import materias, prerequisitos, estados, consultas, config, eventos, carreras, usuarios, auth as auth_router
 
 # Crea las tablas si no existen
 models.Base.metadata.create_all(bind=engine)
@@ -51,6 +51,7 @@ app = FastAPI(
         "| `prerequisito_eliminado` | Prerequisito eliminado |\n"
         "| `estado_actualizado` | Estado de materia cambiado |\n"
         "| `evento_creado` / `evento_actualizado` / `evento_eliminado` | Cambios en la agenda |\n"
+        "| `carrera_creada` / `carrera_actualizada` / `carrera_eliminada` | Cambios en las carreras disponibles |\n"
     ),
     version="1.0.0",
 )
@@ -75,6 +76,8 @@ app.include_router(estados.router)
 app.include_router(consultas.router)
 app.include_router(config.router)
 app.include_router(eventos.router)
+app.include_router(carreras.router)
+app.include_router(usuarios.router)
 
 
 @app.on_event("startup")

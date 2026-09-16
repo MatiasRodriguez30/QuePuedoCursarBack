@@ -1,6 +1,6 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app import auth, models, schemas
@@ -11,11 +11,17 @@ router = APIRouter(prefix="/prerequisitos", tags=["Prerequisitos"])
 
 @router.get("", response_model=List[schemas.PrerequisitoOut])
 def listar_prerequisitos(
+    carrera_id: int = Query(..., description="Sólo se listan los prerequisitos de materias de esta carrera"),
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(auth.get_current_user),
 ):
-    """Lista todos los prerequisitos definidos."""
-    return db.query(models.Prerequisito).all()
+    """Lista los prerequisitos de las materias de UNA carrera."""
+    return (
+        db.query(models.Prerequisito)
+        .join(models.Materia, models.Prerequisito.materia_id == models.Materia.id)
+        .filter(models.Materia.carrera_id == carrera_id)
+        .all()
+    )
 
 
 @router.post("", response_model=schemas.PrerequisitoOut, status_code=201)
@@ -39,6 +45,9 @@ async def crear_prerequisito(
     requerida = db.query(models.Materia).filter(models.Materia.id == prereq.materia_requerida_id).first()
     if not requerida:
         raise HTTPException(status_code=404, detail=f"Materia requerida con id {prereq.materia_requerida_id} no encontrada")
+
+    if materia.carrera_id != requerida.carrera_id:
+        raise HTTPException(status_code=400, detail="Ambas materias deben pertenecer a la misma carrera")
 
     existente = db.query(models.Prerequisito).filter(
         models.Prerequisito.materia_id == prereq.materia_id,

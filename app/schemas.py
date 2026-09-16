@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import date, time
+from datetime import date, datetime, time
 from typing import Optional, List
 from pydantic import BaseModel
 from app.models import TipoPrerequisito, EstadoEnum, RolEnum, OrigenEvento
@@ -28,6 +28,22 @@ class UsuarioOut(BaseModel):
         orm_mode = True
 
 
+class UsuarioAdminOut(BaseModel):
+    """Igual que UsuarioOut, más datos que sólo le interesan al panel de
+    administración (ver GET /usuarios, admin-only)."""
+    id: int
+    email: str
+    rol: RolEnum
+    creado_en: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class UsuarioRolUpdate(BaseModel):
+    rol: RolEnum
+
+
 class TokenOut(BaseModel):
     token: str
     usuario: UsuarioOut
@@ -40,6 +56,32 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     password: str
+
+
+# ─────────────────────────────────────────────
+# Carrera
+# ─────────────────────────────────────────────
+
+class CarreraCreate(BaseModel):
+    nombre: str
+    plan_nombre: Optional[str] = None
+    horas_excepcion_ultimo_anio: Optional[int] = None
+
+
+class CarreraUpdate(BaseModel):
+    nombre: Optional[str] = None
+    plan_nombre: Optional[str] = None
+    horas_excepcion_ultimo_anio: Optional[int] = None
+
+
+class CarreraOut(BaseModel):
+    id: int
+    nombre: str
+    plan_nombre: Optional[str] = None
+    horas_excepcion_ultimo_anio: Optional[int] = None
+
+    class Config:
+        orm_mode = True
 
 
 # ─────────────────────────────────────────────
@@ -57,6 +99,7 @@ class MateriaBase(BaseModel):
 
 
 class MateriaCreate(MateriaBase):
+    carrera_id: int
     # Si se omite (o se manda vacío), el backend lo autogenera a partir del ID interno.
     codigo: Optional[str] = None
 
@@ -73,6 +116,7 @@ class MateriaUpdate(BaseModel):
 
 class MateriaOut(MateriaBase):
     id: int
+    carrera_id: Optional[int] = None
 
     class Config:
         orm_mode = True
@@ -132,7 +176,7 @@ class MateriaConEstado(BaseModel):
 
 
 # ─────────────────────────────────────────────
-# Configuración global (año / cuatrimestre actual del alumno)
+# Configuración por carrera (año / cuatrimestre actual del alumno)
 # ─────────────────────────────────────────────
 
 class ConfigUpdate(BaseModel):
@@ -141,6 +185,7 @@ class ConfigUpdate(BaseModel):
 
 
 class ConfigOut(BaseModel):
+    carrera_id: Optional[int] = None
     anio_actual: Optional[int] = None
     cuatrimestre_actual: Optional[int] = None
 

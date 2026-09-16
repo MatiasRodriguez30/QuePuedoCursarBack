@@ -66,11 +66,38 @@ class EstadoEnum(str, enum.Enum):
     NO_CURSADA = "NO_CURSADA"
 
 
+class Carrera(Base):
+    """Una carrera universitaria (ej. "Ingeniería en Sistemas", Plan 2023).
+    Cada una tiene su propio plan de materias y correlatividades, totalmente
+    independiente de las demás. Un usuario puede tener progreso guardado en
+    varias carreras a la vez (su EstadoMateria queda ligado a la materia, que
+    a su vez pertenece a una sola carrera)."""
+
+    __tablename__ = "carreras"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String, unique=True, nullable=False)
+    plan_nombre = Column(String, nullable=True)  # ej. "Plan 2023", sólo descriptivo
+    # Límite de horas semanales del último año para la excepción de "Adelanto
+    # de Nivel" (Ordenanza 1872, ver businessLogic.checkExcepcionMachete en el
+    # frontend). Null = esta carrera no tiene esa excepción disponible.
+    horas_excepcion_ultimo_anio = Column(Integer, nullable=True)
+
+    materias = relationship("Materia", back_populates="carrera", cascade="all, delete-orphan")
+    config = relationship("ConfigApp", back_populates="carrera", uselist=False, cascade="all, delete-orphan")
+
+
 class Materia(Base):
     __tablename__ = "materias"
 
     id = Column(Integer, primary_key=True, index=True)
-    codigo = Column(String, unique=True, index=True, nullable=False)
+    # Nullable a nivel DB sólo para permitir la migración de filas cargadas
+    # antes de que existiera el sistema de carreras (ver scripts/migrate_v3_carreras.py).
+    # La aplicación siempre lo completa al crear una materia nueva.
+    carrera_id = Column(Integer, ForeignKey("carreras.id"), nullable=True)
+    # El código ya no es único globalmente (dos carreras distintas pueden
+    # reusar el mismo código), sólo dentro de su propia carrera.
+    codigo = Column(String, index=True, nullable=False)
     nombre = Column(String, nullable=False)
     descripcion = Column(String, nullable=True)
     anio = Column(Integer, nullable=True)
@@ -83,6 +110,7 @@ class Materia(Base):
     # por lo que se pueden cursar en un horario/comisión distinto al propio de Sistemas.
     es_basica_compartida = Column(Boolean, nullable=False, default=False)
 
+    carrera = relationship("Carrera", back_populates="materias")
     # Prerequisitos que TIENE esta materia (lo que necesita para cursarse)
     prerequisitos = relationship(
         "Prerequisito",
@@ -101,6 +129,10 @@ class Materia(Base):
         "EstadoMateria",
         back_populates="materia",
         cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("carrera_id", "codigo", name="uq_materia_carrera_codigo"),
     )
 
 
@@ -147,16 +179,21 @@ class EstadoMateria(Base):
 
 
 class ConfigApp(Base):
-    """Fila única (id=1) con configuración global: en qué año/cuatrimestre
-    calendario dice estar parado el alumno. Se usa para calcular próximas
+    """Una fila por carrera con en qué año/cuatrimestre calendario dice estar
+    parado el alumno DE ESA CARRERA. Se usa para calcular próximas
     oportunidades de cursado y la ruta sugerida, en lugar de adivinar a
     partir de la fecha del dispositivo."""
 
     __tablename__ = "config_app"
 
-    id = Column(Integer, primary_key=True, default=1)
+    id = Column(Integer, primary_key=True)
+    # Nullable a nivel DB sólo por la migración desde la fila única anterior
+    # (ver scripts/migrate_v3_carreras.py); la aplicación siempre la completa.
+    carrera_id = Column(Integer, ForeignKey("carreras.id"), unique=True, nullable=True)
     anio_actual = Column(Integer, nullable=True)
     cuatrimestre_actual = Column(Integer, nullable=True)  # 1 o 2
+
+    carrera = relationship("Carrera", back_populates="config")
 
 
 class OrigenEvento(str, enum.Enum):

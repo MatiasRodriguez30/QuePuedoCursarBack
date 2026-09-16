@@ -65,6 +65,15 @@ def user():
     return user
 
 @pytest.fixture
+def carrera():
+    db = TestingSessionLocal()
+    c = models.Carrera(nombre="Carrera de Prueba", plan_nombre="Plan Test", horas_excepcion_ultimo_anio=32)
+    db.add(c)
+    db.commit()
+    db.refresh(c)
+    return c
+
+@pytest.fixture
 def db_session():
     """Sesión SQLAlchemy directa sobre la MISMA base en memoria que usa la app
     (comparten conexión gracias a StaticPool), para que los tests puedan

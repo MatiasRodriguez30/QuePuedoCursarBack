@@ -80,13 +80,35 @@ def obtener_token():
     return token
 
 
+NOMBRE_CARRERA = os.getenv("CARRERA_NOMBRE", "Ingeniería en Sistemas")
+
+
+def obtener_o_crear_carrera(token):
+    """Cada carrera tiene su propio plan de materias (ver migrate_v3_carreras.py).
+    Este script siempre carga el plan sobre UNA carrera puntual (por defecto
+    "Ingeniería en Sistemas"), nunca sobre todas."""
+    carreras = call("GET", "/carreras", token=token)
+    for c in carreras:
+        if c["nombre"] == NOMBRE_CARRERA:
+            return c["id"]
+
+    print("Carrera '{}' no existe todavía, creándola...".format(NOMBRE_CARRERA))
+    creada = call("POST", "/carreras", {
+        "nombre": NOMBRE_CARRERA,
+        "plan_nombre": "Plan 2023",
+        "horas_excepcion_ultimo_anio": 32,
+    }, token=token)
+    return creada["id"]
+
+
 def main():
     token = obtener_token()
     plan = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+    carrera_id = obtener_o_crear_carrera(token)
 
-    existentes = call("GET", "/materias")
+    existentes = call("GET", "/materias?carrera_id={}".format(carrera_id))
     if existentes:
-        print("Borrando {} materias existentes...".format(len(existentes)))
+        print("Borrando {} materias existentes de '{}'...".format(len(existentes), NOMBRE_CARRERA))
         for m in existentes:
             call("DELETE", "/materias/{}".format(m["id"]), token=token)
 
@@ -94,6 +116,7 @@ def main():
 
     for m in plan["core"]:
         creada = call("POST", "/materias", {
+            "carrera_id": carrera_id,
             "codigo": m["codigo"],
             "nombre": m["nombre"],
             "anio": m["anio"],
@@ -106,6 +129,7 @@ def main():
 
     for m in plan["electivas"]:
         creada = call("POST", "/materias", {
+            "carrera_id": carrera_id,
             "codigo": m["codigo"],
             "nombre": m["nombre"],
             "descripcion": m.get("descripcion"),
@@ -134,7 +158,7 @@ def main():
             }, token=token)
             total_prereq += 1
     print("Creados {} prerequisitos.".format(total_prereq))
-    print("\nListo. Total materias en BD:", len(call("GET", "/materias")))
+    print("\nListo. Total materias en '{}':".format(NOMBRE_CARRERA), len(call("GET", "/materias?carrera_id={}".format(carrera_id))))
 
 
 if __name__ == "__main__":

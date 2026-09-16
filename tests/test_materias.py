@@ -8,9 +8,9 @@ def test_create_materia_as_user(app_test, user):
     response = app_test.post("/materias", json={"nombre": "Math", "codigo": "123", "anio": 1}, headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 403
 
-def test_create_materia_as_admin(app_test, admin_user):
+def test_create_materia_as_admin(app_test, admin_user, carrera):
     login = app_test.post("/auth/login", json={"email": "admin@test.com", "password": "admin123"})
     token = login.json()["token"]
-    response = app_test.post("/materias", json={"nombre": "Math", "codigo": "123", "anio": 1}, headers={"Authorization": f"Bearer {token}"})
+    response = app_test.post("/materias", json={"nombre": "Math", "codigo": "123", "anio": 1, "carrera_id": carrera.id}, headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 201
     assert response.json()["nombre"] == "Math"
