@@ -120,11 +120,18 @@ def main():
         existentes = {
             uid for (uid,) in db.query(models.Evento.uid_ics).filter(models.Evento.uid_ics.isnot(None))
         }
+        vistos_en_esta_corrida = set()
         nuevos = 0
         for ev in eventos:
             uid = ev.get("uid_ics")
-            if uid and uid in existentes:
+            # Google exporta instancias modificadas de eventos recurrentes
+            # reusando el mismo UID del maestro (con RECURRENCE-ID aparte, que
+            # este parser no lee) -> el mismo UID puede repetirse en el archivo.
+            # Nos quedamos con la primera ocurrencia y saltamos el resto.
+            if uid and (uid in existentes or uid in vistos_en_esta_corrida):
                 continue
+            if uid:
+                vistos_en_esta_corrida.add(uid)
             db.add(models.Evento(
                 titulo=ev["titulo"],
                 descripcion=ev.get("descripcion"),
