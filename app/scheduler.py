@@ -66,9 +66,9 @@ def enviar_recordatorios_del_dia_siguiente() -> None:
 
         html = _formatear_html(eventos, manana)
         usuarios = db.query(models.Usuario).all()
-        for usuario in usuarios:
-            enviar_email(usuario.email, f"Recordatorio: agenda de mañana ({manana.strftime('%d/%m')})", html)
-        logger.info("Recordatorios de %s enviados a %d usuarios.", manana, len(usuarios))
+        asunto = f"Recordatorio: agenda de mañana ({manana.strftime('%d/%m')})"
+        enviados = sum(1 for u in usuarios if enviar_email(u.email, asunto, html))
+        logger.info("Recordatorios de %s: %d/%d mails enviados.", manana, enviados, len(usuarios))
     finally:
         db.close()
 
@@ -81,8 +81,10 @@ async def loop_recordatorios():
             # enviar_recordatorios_del_dia_siguiente() hace llamadas HTTP
             # bloqueantes (urllib) para mandar los mails; llamarla directo acá
             # congelaría TODA la API (HTTP y WebSockets) mientras dura el
-            # envío. to_thread la corre en un hilo aparte sin bloquear el loop.
-            await asyncio.to_thread(enviar_recordatorios_del_dia_siguiente)
+            # envío. run_in_executor la corre en un hilo aparte sin bloquear el
+            # loop (asyncio.to_thread sería lo mismo, pero es 3.9+ y la tablet
+            # corre 3.8: ahí tiraba AttributeError y el mail nunca salía).
+            await asyncio.get_event_loop().run_in_executor(None, enviar_recordatorios_del_dia_siguiente)
         except Exception:
             logger.exception("Error enviando recordatorios diarios")
         # Margen para no re-disparar dos veces si el reloj cae justo en el borde.
