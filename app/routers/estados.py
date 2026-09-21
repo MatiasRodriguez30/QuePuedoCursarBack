@@ -3,7 +3,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app import auth, models, schemas
+from app import auth, grupos_service, models, schemas
 from app.ws_manager import manager
 
 router = APIRouter(prefix="/estados", tags=["Estados"])
@@ -52,7 +52,8 @@ async def resetear_estados(
     db.commit()
 
     salida = [schemas.EstadoMateriaOut.from_orm(e) for e in estados]
-    await manager.broadcast("estados_reseteados", {"usuario_id": usuario.id, "estados": [e.dict() for e in salida]})
+    # Sólo a los dispositivos del propio usuario: es su progreso, no el de todos.
+    await manager.enviar_a_usuarios([usuario.id], "estados_reseteados", {"usuario_id": usuario.id, "estados": [e.dict() for e in salida]})
     return salida
 
 
@@ -76,6 +77,7 @@ async def actualizar_estado(
         models.EstadoMateria.usuario_id == usuario.id,
     ).first()
 
+    estado_previo = estado.estado if estado else None
     if not estado:
         estado = models.EstadoMateria(materia_id=materia_id, usuario_id=usuario.id, estado=datos.estado)
         db.add(estado)
@@ -86,5 +88,8 @@ async def actualizar_estado(
     db.refresh(estado)
 
     out = schemas.EstadoMateriaOut.from_orm(estado)
-    await manager.broadcast("estado_actualizado", out.dict())
+    # Sólo a los dispositivos del propio usuario (tablet, celular...).
+    await manager.enviar_a_usuarios([usuario.id], "estado_actualizado", out.dict())
+    # El grupo sólo se entera de los logros (aprobó/regularizó), no del resto.
+    await grupos_service.anunciar_logro(usuario, materia, estado_previo, estado.estado)
     return estado

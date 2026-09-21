@@ -27,8 +27,47 @@ class Usuario(Base):
     password_hash = Column(String, nullable=False)
     rol = Column(SAEnum(RolEnum), nullable=False, default=RolEnum.USER)
     creado_en = Column(DateTime, default=datetime.utcnow)
+    # Nombre que ven los demás miembros de su grupo. La columna en la base se
+    # llama "apodo" (se agrega con app.migraciones); el atributo Python
+    # `apodo` (abajo) siempre devuelve un valor: si la persona no eligió
+    # uno, "Cobayo N", para no exponer nada del email.
+    apodo_db = Column("apodo", String, nullable=True)
 
     estados = relationship("EstadoMateria", back_populates="usuario", cascade="all, delete-orphan")
+    membresia = relationship("Membresia", back_populates="usuario", uselist=False, cascade="all, delete-orphan")
+
+    @property
+    def apodo(self):
+        return self.apodo_db or "Cobayo {}".format(self.id)
+
+
+class Grupo(Base):
+    """Grupo de amigos al que se entra con un código de invitación."""
+
+    __tablename__ = "grupos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String, nullable=False)
+    codigo = Column(String, unique=True, nullable=False, index=True)
+    creado_en = Column(DateTime, default=datetime.utcnow)
+
+    miembros = relationship("Membresia", back_populates="grupo", cascade="all, delete-orphan")
+
+
+class Membresia(Base):
+    """Un usuario pertenece a lo sumo a UN grupo (usuario_id único)."""
+
+    __tablename__ = "membresias"
+
+    id = Column(Integer, primary_key=True, index=True)
+    grupo_id = Column(Integer, ForeignKey("grupos.id", ondelete="CASCADE"), nullable=False, index=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False, unique=True)
+    # Si comparte su progreso con el grupo (logros, y a futuro "quién cursa qué").
+    comparte = Column(Boolean, nullable=False, default=True)
+    creado_en = Column(DateTime, default=datetime.utcnow)
+
+    grupo = relationship("Grupo", back_populates="miembros")
+    usuario = relationship("Usuario", back_populates="membresia")
 
 
 class Sesion(Base):

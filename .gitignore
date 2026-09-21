@@ -13,3 +13,6 @@ deploy.out
 .cloudflared.pid
 tunnel_url.txt
 cloudflared_config.yml
+*.db-shm
+*.db-wal
+*.db.bak-*

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import date, datetime, time
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, constr
 from app.models import TipoPrerequisito, EstadoEnum, RolEnum, OrigenEvento
 
 
@@ -23,9 +23,53 @@ class UsuarioOut(BaseModel):
     id: int
     email: str
     rol: RolEnum
+    apodo: str
 
     class Config:
         orm_mode = True
+
+
+# Letras (con acentos), números, espacios y _ - . ; 2 a 20 caracteres.
+class ApodoUpdate(BaseModel):
+    apodo: constr(strip_whitespace=True, min_length=2, max_length=20, regex=r"^[\w .\-]+$")
+
+
+# ─────────────────────────────────────────────
+# Grupos
+# ─────────────────────────────────────────────
+
+class GrupoCreate(BaseModel):
+    nombre: constr(strip_whitespace=True, min_length=2, max_length=40)
+
+
+class GrupoUnirse(BaseModel):
+    codigo: constr(strip_whitespace=True, min_length=4, max_length=16)
+
+
+class GrupoPreferenciasUpdate(BaseModel):
+    comparte: bool
+
+
+class MiembroOut(BaseModel):
+    usuario_id: int
+    apodo: str
+    comparte: bool
+    en_linea: bool
+
+
+class GrupoYoOut(BaseModel):
+    usuario_id: int
+    apodo: str
+    comparte: bool
+
+
+class GrupoOut(BaseModel):
+    id: int
+    nombre: str
+    codigo: str
+    creado_en: datetime
+    yo: GrupoYoOut
+    miembros: List[MiembroOut]
 
 
 class UsuarioAdminOut(BaseModel):
