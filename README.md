@@ -168,9 +168,12 @@ kill $(cat .cloudflared.pid)  # frenar el túnel a mano
 
 ## WebSocket
 
-Cualquier cliente puede conectarse a `/ws`. Cada vez que alguien cambia un
-estado, agrega o elimina una materia/prerequisito, o cambia el año/cuatrimestre
-configurado, **todos los clientes conectados reciben el evento** en tiempo real.
+Los clientes se conectan a `/ws?token=<token de sesión>`. Los datos compartidos
+(materias, prerequisitos, agenda, carreras, configuración) se emiten a **todos**
+los clientes conectados. El **progreso de cada usuario** (`estado_actualizado`,
+`estados_reseteados`) llega **solo a los dispositivos de ese usuario**, y a su
+grupo únicamente los logros (`logro_grupo`) y los cambios de la lista de
+miembros (`grupo_miembros`).
 
 ### Formato del mensaje
 
@@ -190,9 +193,32 @@ configurado, **todos los clientes conectados reciben el evento** en tiempo real.
 | `materia_eliminada` | DELETE /materias/{id} |
 | `prerequisito_creado` | POST /prerequisitos |
 | `prerequisito_eliminado` | DELETE /prerequisitos/{id} |
-| `estado_actualizado` | PUT /estados/{materia_id} |
-| `estados_reseteados` | POST /estados/reset |
+| `estado_actualizado` | PUT /estados/{materia_id} (solo a los dispositivos del propio usuario) |
+| `estados_reseteados` | POST /estados/reset (solo a los dispositivos del propio usuario) |
 | `config_actualizada` | PUT /config |
+| `logro_grupo` | Alguien del grupo aprobó o regularizó una materia (y comparte su progreso) |
+| `grupo_miembros` | Alguien entró/salió, cambió su apodo o su preferencia, o se conectó/desconectó |
+
+## Grupos y logros en vivo
+
+Un grupo se crea con `POST /grupos` y se comparte con su **código de
+invitación** (8 caracteres). Cada usuario está en a lo sumo un grupo.
+
+| Endpoint | Descripción |
+|---|---|
+| `POST /grupos` `{nombre}` | Crea un grupo y te deja como primer miembro |
+| `POST /grupos/unirse` `{codigo}` | Entra con el código (límite de 5 intentos por minuto) |
+| `GET /grupos/mio` | Tu grupo con miembros y quién está en línea (404 si no tenés) |
+| `PUT /grupos/mio/preferencias` `{comparte}` | Compartir o no tu progreso |
+| `POST /grupos/salir` | Salís del grupo (si era el último, se elimina) |
+| `PUT /auth/apodo` `{apodo}` | Tu nombre visible (2 a 20 caracteres; por defecto "Cobayo N") |
+
+`comparte` activado significa participar en ambos sentidos: tus logros se
+anuncian al grupo y recibís los suyos. Quien lo desactiva sigue siendo miembro.
+Marcar y desmarcar la misma materia dentro de un minuto no repite el aviso.
+
+La columna `usuarios.apodo` se agrega sola al arrancar (`app/migraciones.py`,
+con backup previo `plan_estudios.db.bak-preGrupos`).
 
 ## Estados de materia
 

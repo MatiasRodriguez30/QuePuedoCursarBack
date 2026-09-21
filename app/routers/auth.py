@@ -5,7 +5,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
-from app import auth, models, schemas
+from app import auth, grupos_service, models, schemas
 from app.config import FRONTEND_URL
 from app.database import get_db
 from app.email_utils import enviar_email
@@ -54,6 +54,21 @@ def login(request: Request, datos: schemas.LoginRequest, db: Session = Depends(g
 
 @router.get("/me", response_model=schemas.UsuarioOut)
 def yo(usuario: models.Usuario = Depends(auth.get_current_user)):
+    return usuario
+
+
+@router.put("/apodo", response_model=schemas.UsuarioOut)
+async def cambiar_apodo(
+    datos: schemas.ApodoUpdate,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
+    """Cambia el nombre con el que te ven los demás miembros de tu grupo."""
+    usuario.apodo_db = datos.apodo
+    db.commit()
+    db.refresh(usuario)
+    if usuario.membresia is not None:
+        await grupos_service.emitir_miembros(usuario.membresia.grupo)
     return usuario
 
 

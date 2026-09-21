@@ -7,14 +7,16 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-from app import auth, models
+from app import auth, grupos_service, models
 from app.database import engine, SessionLocal
+from app.migraciones import aplicar_migraciones
 from app.ws_manager import manager
 from app.scheduler import loop_recordatorios
-from app.routers import materias, prerequisitos, estados, consultas, config, eventos, carreras, usuarios, auth as auth_router
+from app.routers import materias, prerequisitos, estados, consultas, config, eventos, carreras, usuarios, grupos, auth as auth_router
 
-# Crea las tablas si no existen
+# Crea las tablas si no existen y agrega las columnas nuevas a las que ya existen
 models.Base.metadata.create_all(bind=engine)
+aplicar_migraciones(engine)
 
 # ─── Rate limiter (FIX 4) ─────────────────────────────────────────────────────
 limiter = Limiter(key_func=get_remote_address)
@@ -48,7 +50,9 @@ app = FastAPI(
         "| `materia_eliminada` | Materia eliminada |\n"
         "| `prerequisito_creado` | Nuevo prerequisito |\n"
         "| `prerequisito_eliminado` | Prerequisito eliminado |\n"
-        "| `estado_actualizado` | Estado de materia cambiado |\n"
+        "| `estado_actualizado` / `estados_reseteados` | Cambio en TU progreso (sólo a tus dispositivos) |\n"
+        "| `logro_grupo` | Alguien de tu grupo aprobó o regularizó una materia |\n"
+        "| `grupo_miembros` | Cambió la lista de tu grupo (alguien entró/salió, apodo, preferencia o conexión) |\n"
         "| `evento_creado` / `evento_actualizado` / `evento_eliminado` | Cambios en la agenda |\n"
         "| `carrera_creada` / `carrera_actualizada` / `carrera_eliminada` | Cambios en las carreras disponibles |\n"
     ),
@@ -77,6 +81,7 @@ app.include_router(config.router)
 app.include_router(eventos.router)
 app.include_router(carreras.router)
 app.include_router(usuarios.router)
+app.include_router(grupos.router)
 
 
 @app.on_event("startup")
@@ -112,7 +117,10 @@ async def websocket_endpoint(
         await websocket.close(code=4001)
         return
 
-    await manager.connect(websocket)
+    era_primera = not manager.esta_en_linea(usuario.id)
+    await manager.connect(websocket, usuario.id)
+    if era_primera:
+        await _avisar_presencia(usuario.id)
     try:
         while True:
             await websocket.receive_text()  # mantener la conexión activa
@@ -120,6 +128,17 @@ async def websocket_endpoint(
         pass
     finally:
         manager.disconnect(websocket)
+        if not manager.esta_en_linea(usuario.id):
+            await _avisar_presencia(usuario.id)
+
+
+async def _avisar_presencia(usuario_id: int):
+    """Avisa al grupo que este usuario se conectó o se desconectó del todo.
+    Un fallo acá nunca debe tumbar la conexión."""
+    try:
+        await grupos_service.notificar_presencia(usuario_id)
+    except Exception as e:
+        print(f"[WS] No se pudo avisar la presencia de {usuario_id}: {e}")
 
 
 # ─── Health check ─────────────────────────────────────────────────────────────
