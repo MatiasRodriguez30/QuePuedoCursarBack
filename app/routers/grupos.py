@@ -1,3 +1,5 @@
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -64,6 +66,20 @@ def mi_grupo(
     if membresia is None:
         raise HTTPException(status_code=404, detail="No estás en ningún grupo")
     return grupos_service.grupo_payload(membresia.grupo, usuario)
+
+
+@router.get("/mio/cursando", response_model=List[schemas.CursandoEntry])
+def quien_cursa_que(
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
+    """Qué materias está cursando ahora cada miembro del grupo que comparte
+    su progreso (incluido, si comparte, el propio usuario). Usalo para armar
+    un mapa materia_id -> [apodos] en el frontend."""
+    membresia = _membresia(db, usuario)
+    if membresia is None:
+        raise HTTPException(status_code=404, detail="No estás en ningún grupo")
+    return grupos_service.cursando_payload(membresia.grupo, db)
 
 
 @router.put("/mio/preferencias", response_model=schemas.GrupoOut)

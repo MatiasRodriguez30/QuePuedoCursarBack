@@ -123,3 +123,54 @@ async def anunciar_logro(
             "en": datetime.utcnow().isoformat() + "Z",
         },
     )
+
+
+def cursando_payload(grupo: models.Grupo, db: Session) -> List[dict]:
+    """Materias que los miembros del grupo (que comparten progreso, excepto
+    el que pregunta) están cursando ahora mismo. Una materia puede tener
+    varios cursantes; no filtra por carrera: el front descarta lo que no
+    reconoce."""
+    ids_comparten = [m.usuario_id for m in grupo.miembros if m.comparte]
+    if not ids_comparten:
+        return []
+    filas = (
+        db.query(models.EstadoMateria, models.Usuario)
+        .join(models.Usuario, models.Usuario.id == models.EstadoMateria.usuario_id)
+        .filter(
+            models.EstadoMateria.usuario_id.in_(ids_comparten),
+            models.EstadoMateria.estado == models.EstadoEnum.CURSANDO,
+        )
+        .all()
+    )
+    return [
+        {"materia_id": estado.materia_id, "usuario_id": usuario.id, "apodo": usuario.apodo}
+        for estado, usuario in filas
+    ]
+
+
+async def anunciar_cambio_cursando(
+    usuario: models.Usuario,
+    materia: models.Materia,
+    estado_previo,
+    estado_nuevo,
+) -> None:
+    """Avisa al grupo cuando alguien empieza o deja de cursar una materia
+    (entra o sale del estado CURSANDO), para "quién cursa esto ahora"."""
+    entra = estado_nuevo == models.EstadoEnum.CURSANDO
+    sale = estado_previo == models.EstadoEnum.CURSANDO and estado_nuevo != models.EstadoEnum.CURSANDO
+    if not entra and not sale:
+        return
+    membresia = usuario.membresia
+    if membresia is None or not membresia.comparte:
+        return
+    destinatarios = [m.usuario_id for m in membresia.grupo.miembros if m.usuario_id != usuario.id and m.comparte]
+    await manager.enviar_a_usuarios(
+        destinatarios,
+        "grupo_cursando",
+        {
+            "usuario_id": usuario.id,
+            "apodo": usuario.apodo,
+            "materia_id": materia.id,
+            "cursando": entra,
+        },
+    )

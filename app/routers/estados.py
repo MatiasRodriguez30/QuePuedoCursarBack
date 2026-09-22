@@ -47,6 +47,9 @@ async def resetear_estados(
     lista completa para que sus otros dispositivos conectados se resincronicen.
     """
     estados = db.query(models.EstadoMateria).filter(models.EstadoMateria.usuario_id == usuario.id).all()
+    # Guardamos qué materias estaban CURSANDO antes de pisarlas: el grupo
+    # tiene que enterarse de que el usuario dejó de cursarlas.
+    materias_cursando = [e.materia for e in estados if e.estado == models.EstadoEnum.CURSANDO]
     for e in estados:
         e.estado = models.EstadoEnum.NO_CURSADA
     db.commit()
@@ -54,6 +57,8 @@ async def resetear_estados(
     salida = [schemas.EstadoMateriaOut.from_orm(e) for e in estados]
     # Sólo a los dispositivos del propio usuario: es su progreso, no el de todos.
     await manager.enviar_a_usuarios([usuario.id], "estados_reseteados", {"usuario_id": usuario.id, "estados": [e.dict() for e in salida]})
+    for materia in materias_cursando:
+        await grupos_service.anunciar_cambio_cursando(usuario, materia, models.EstadoEnum.CURSANDO, models.EstadoEnum.NO_CURSADA)
     return salida
 
 
@@ -90,6 +95,8 @@ async def actualizar_estado(
     out = schemas.EstadoMateriaOut.from_orm(estado)
     # Sólo a los dispositivos del propio usuario (tablet, celular...).
     await manager.enviar_a_usuarios([usuario.id], "estado_actualizado", out.dict())
-    # El grupo sólo se entera de los logros (aprobó/regularizó), no del resto.
+    # El grupo sólo se entera de los logros (aprobó/regularizó)...
     await grupos_service.anunciar_logro(usuario, materia, estado_previo, estado.estado)
+    # ...y de si empezó o dejó de cursar (para "quién cursa esto ahora").
+    await grupos_service.anunciar_cambio_cursando(usuario, materia, estado_previo, estado.estado)
     return estado
