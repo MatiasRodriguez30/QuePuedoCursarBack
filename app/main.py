@@ -12,7 +12,7 @@ from app.database import engine, SessionLocal
 from app.migraciones import aplicar_migraciones
 from app.ws_manager import manager
 from app.scheduler import loop_recordatorios
-from app.routers import materias, prerequisitos, estados, consultas, config, eventos, carreras, usuarios, grupos, auth as auth_router
+from app.routers import materias, prerequisitos, estados, consultas, config, eventos, carreras, usuarios, grupos, db_admin, auth as auth_router
 
 # Crea las tablas si no existen y agrega las columnas nuevas a las que ya existen
 models.Base.metadata.create_all(bind=engine)
@@ -83,6 +83,7 @@ app.include_router(eventos.router)
 app.include_router(carreras.router)
 app.include_router(usuarios.router)
 app.include_router(grupos.router)
+app.include_router(db_admin.router)
 
 
 @app.on_event("startup")
