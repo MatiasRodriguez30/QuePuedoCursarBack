@@ -72,6 +72,13 @@ class GrupoOut(BaseModel):
     miembros: List[MiembroOut]
 
 
+class CursandoEntry(BaseModel):
+    """Un miembro del grupo (que comparte progreso) cursando una materia."""
+    materia_id: int
+    usuario_id: int
+    apodo: str
+
+
 class UsuarioAdminOut(BaseModel):
     """Igual que UsuarioOut, más datos que sólo le interesan al panel de
     administración (ver GET /usuarios, admin-only)."""

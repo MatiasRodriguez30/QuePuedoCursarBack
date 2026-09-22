@@ -198,8 +198,9 @@ miembros (`grupo_miembros`).
 | `config_actualizada` | PUT /config |
 | `logro_grupo` | Alguien del grupo aprobó o regularizó una materia (y comparte su progreso) |
 | `grupo_miembros` | Alguien entró/salió, cambió su apodo o su preferencia, o se conectó/desconectó |
+| `grupo_cursando` | Alguien del grupo empezó o dejó de cursar una materia (y comparte su progreso) |
 
-## Grupos y logros en vivo
+## Grupos, logros en vivo y "quién cursa esto ahora"
 
 Un grupo se crea con `POST /grupos` y se comparte con su **código de
 invitación** (8 caracteres). Cada usuario está en a lo sumo un grupo.
@@ -211,11 +212,13 @@ invitación** (8 caracteres). Cada usuario está en a lo sumo un grupo.
 | `GET /grupos/mio` | Tu grupo con miembros y quién está en línea (404 si no tenés) |
 | `PUT /grupos/mio/preferencias` `{comparte}` | Compartir o no tu progreso |
 | `POST /grupos/salir` | Salís del grupo (si era el último, se elimina) |
+| `GET /grupos/mio/cursando` | Qué materia está cursando cada miembro que comparte (lista `{materia_id, usuario_id, apodo}`) |
 | `PUT /auth/apodo` `{apodo}` | Tu nombre visible (2 a 20 caracteres; por defecto "Cobayo N") |
 
-`comparte` activado significa participar en ambos sentidos: tus logros se
-anuncian al grupo y recibís los suyos. Quien lo desactiva sigue siendo miembro.
-Marcar y desmarcar la misma materia dentro de un minuto no repite el aviso.
+`comparte` activado significa participar en ambos sentidos: tus logros y las
+materias que cursás se anuncian al grupo, y recibís los suyos. Quien lo
+desactiva sigue siendo miembro pero no envía ni recibe nada de eso. Marcar y
+desmarcar la misma materia dentro de un minuto no repite el aviso de logro.
 
 La columna `usuarios.apodo` se agrega sola al arrancar (`app/migraciones.py`,
 con backup previo `plan_estudios.db.bak-preGrupos`).

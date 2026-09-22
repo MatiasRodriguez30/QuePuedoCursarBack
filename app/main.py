@@ -53,6 +53,7 @@ app = FastAPI(
         "| `estado_actualizado` / `estados_reseteados` | Cambio en TU progreso (sólo a tus dispositivos) |\n"
         "| `logro_grupo` | Alguien de tu grupo aprobó o regularizó una materia |\n"
         "| `grupo_miembros` | Cambió la lista de tu grupo (alguien entró/salió, apodo, preferencia o conexión) |\n"
+        "| `grupo_cursando` | Alguien de tu grupo empezó o dejó de cursar una materia |\n"
         "| `evento_creado` / `evento_actualizado` / `evento_eliminado` | Cambios en la agenda |\n"
         "| `carrera_creada` / `carrera_actualizada` / `carrera_eliminada` | Cambios en las carreras disponibles |\n"
     ),
