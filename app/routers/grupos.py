@@ -82,6 +82,22 @@ def quien_cursa_que(
     return grupos_service.cursando_payload(membresia.grupo, db)
 
 
+@router.get("/mio/ranking", response_model=List[schemas.RankingEntry])
+def ranking_grupo(
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
+    membresia = _membresia(db, usuario)
+    if membresia is None:
+        raise HTTPException(status_code=404, detail="No estás en ningún grupo")
+    if not membresia.comparte:
+        raise HTTPException(
+            status_code=403,
+            detail="Activá 'Compartir mi progreso' para ver el ranking del grupo",
+        )
+    return grupos_service.ranking_payload(membresia.grupo, db, usuario=usuario)
+
+
 @router.put("/mio/preferencias", response_model=schemas.GrupoOut)
 async def actualizar_preferencias(
     datos: schemas.GrupoPreferenciasUpdate,

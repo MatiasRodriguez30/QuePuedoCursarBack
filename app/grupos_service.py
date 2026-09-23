@@ -6,8 +6,9 @@ anotación, sin `asyncio.to_thread`.
 import secrets
 import time
 from datetime import datetime
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import models
@@ -145,6 +146,59 @@ def cursando_payload(grupo: models.Grupo, db: Session) -> List[dict]:
     return [
         {"materia_id": estado.materia_id, "usuario_id": usuario.id, "apodo": usuario.apodo}
         for estado, usuario in filas
+    ]
+
+
+def ranking_payload(
+    grupo: models.Grupo,
+    db: Session,
+    usuario: Optional[models.Usuario] = None,
+) -> List[dict]:
+    """Ranking de materias aprobadas (PROMOCIONADA) de los miembros del
+    grupo que comparten progreso (comparte=True). Ordenado de mayor a menor
+    cantidad de aprobadas, desempatando por usuario_id ascendente."""
+    if hasattr(usuario, "query") and not hasattr(db, "query"):
+        db, usuario = usuario, db
+
+    miembros_que_comparten = [m for m in grupo.miembros if m.comparte]
+    if not miembros_que_comparten:
+        return []
+
+    ids_comparten = [m.usuario_id for m in miembros_que_comparten]
+    filas = (
+        db.query(models.EstadoMateria.usuario_id, func.count(models.EstadoMateria.id))
+        .filter(
+            models.EstadoMateria.usuario_id.in_(ids_comparten),
+            models.EstadoMateria.estado == models.EstadoEnum.PROMOCIONADA,
+        )
+        .group_by(models.EstadoMateria.usuario_id)
+        .all()
+    )
+    aprobadas = {uid: total for uid, total in filas}
+
+    usuario_actual_id = usuario.id if isinstance(usuario, models.Usuario) else usuario
+
+    entradas = [
+        {
+            "usuario_id": m.usuario_id,
+            "apodo": m.usuario.apodo,
+            "materias_aprobadas": aprobadas.get(m.usuario_id, 0),
+            "soy_yo": bool(usuario_actual_id is not None and m.usuario_id == usuario_actual_id),
+        }
+        for m in miembros_que_comparten
+    ]
+
+    entradas.sort(key=lambda x: (-x["materias_aprobadas"], x["usuario_id"]))
+
+    return [
+        {
+            "posicion": pos,
+            "usuario_id": e["usuario_id"],
+            "apodo": e["apodo"],
+            "materias_aprobadas": e["materias_aprobadas"],
+            "soy_yo": e["soy_yo"],
+        }
+        for pos, e in enumerate(entradas, start=1)
     ]
 
 

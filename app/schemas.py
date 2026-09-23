@@ -79,6 +79,14 @@ class CursandoEntry(BaseModel):
     apodo: str
 
 
+class RankingEntry(BaseModel):
+    posicion: int
+    usuario_id: int
+    apodo: str
+    materias_aprobadas: int
+    soy_yo: bool
+
+
 class UsuarioAdminOut(BaseModel):
     """Igual que UsuarioOut, más datos que sólo le interesan al panel de
     administración (ver GET /usuarios, admin-only)."""
