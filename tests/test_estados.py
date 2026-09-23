@@ -1,9 +1,10 @@
-﻿"""
+"""
 test_estados.py — Tests para el router /estados
 
 Cubre: listado (aislamiento por usuario), update, reset.
 """
 import pytest
+from datetime import datetime
 from fastapi.testclient import TestClient
 from app.database import get_db
 from app.main import app
@@ -218,3 +219,70 @@ def test_get_estado_individual_not_found(user_client):
     # pero como la DB está vacía, cualquier ID va a devolver 404 del estado
     resp = c.get("/estados/99999")
     assert resp.status_code == 404
+
+
+# ─── GET /estados/resumen-anual ───────────────────────────────────────────────
+
+def test_resumen_anual_unauthenticated(client):
+    """GET /estados/resumen-anual sin token devuelve 401."""
+    resp = client.get("/estados/resumen-anual")
+    assert resp.status_code == 401
+
+
+def test_resumen_anual_vacio(db_session):
+    """Usuario sin materias aprobadas devuelve lista vacía."""
+    c, token, uid = _make_user_client(db_session, "vacio_resumen@est.com", "pass123")
+    resp = c.get("/estados/resumen-anual")
+    assert resp.status_code == 200
+    assert resp.json() == []
+    app.dependency_overrides.clear()
+
+
+def test_resumen_anual_conteo_por_anio(db_session):
+    """Devuelve el conteo correcto por año para materias aprobadas en distintas fechas."""
+    m1 = _crear_materia(db_session, "AM1", "AM1_RES")
+    m2 = _crear_materia(db_session, "AM2", "AM2_RES")
+    m3 = _crear_materia(db_session, "Fisica 1", "FIS1_RES")
+    m4 = _crear_materia(db_session, "Algebra", "ALG_RES")
+    m5 = _crear_materia(db_session, "Quimica", "QUI_RES")
+
+    c1, _, uid1 = _make_user_client(db_session, "user1_res@est.com", "pass123")
+    c2, _, uid2 = _make_user_client(db_session, "user2_res@est.com", "pass123")
+
+    # c1 promociona m1, m2, m3
+    c1.put("/estados/{}".format(m1), json={"estado": "PROMOCIONADA"})
+    c1.put("/estados/{}".format(m2), json={"estado": "PROMOCIONADA"})
+    c1.put("/estados/{}".format(m3), json={"estado": "PROMOCIONADA"})
+    # c1 regulariza m4 (no debe contar)
+    c1.put("/estados/{}".format(m4), json={"estado": "REGULAR"})
+
+    # Ajustar fechas en DB para simular distintos años
+    e1 = db_session.query(models.EstadoMateria).filter_by(usuario_id=uid1, materia_id=m1).first()
+    e1.fecha_aprobacion = datetime(2023, 3, 15, 10, 0, 0)
+    e2 = db_session.query(models.EstadoMateria).filter_by(usuario_id=uid1, materia_id=m2).first()
+    e2.fecha_aprobacion = datetime(2024, 7, 20, 14, 0, 0)
+    e3 = db_session.query(models.EstadoMateria).filter_by(usuario_id=uid1, materia_id=m3).first()
+    e3.fecha_aprobacion = datetime(2024, 12, 10, 18, 0, 0)
+
+    # c2 promociona m5 en 2025 (no debe mezclarse con c1)
+    c2.put("/estados/{}".format(m5), json={"estado": "PROMOCIONADA"})
+    e5 = db_session.query(models.EstadoMateria).filter_by(usuario_id=uid2, materia_id=m5).first()
+    e5.fecha_aprobacion = datetime(2025, 2, 1, 9, 0, 0)
+    db_session.commit()
+
+    resp = c1.get("/estados/resumen-anual")
+    assert resp.status_code == 200
+    assert resp.json() == [
+        {"anio": 2023, "cantidad": 1},
+        {"anio": 2024, "cantidad": 2},
+    ]
+
+    # c2 ve solo lo suyo
+    resp2 = c2.get("/estados/resumen-anual")
+    assert resp2.status_code == 200
+    assert resp2.json() == [
+        {"anio": 2025, "cantidad": 1},
+    ]
+
+    app.dependency_overrides.clear()
+

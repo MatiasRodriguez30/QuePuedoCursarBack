@@ -82,6 +82,42 @@ def quien_cursa_que(
     return grupos_service.cursando_payload(membresia.grupo, db)
 
 
+@router.get("/mio/perfil/{usuario_id}", response_model=schemas.PerfilUsuarioOut)
+def perfil_de_miembro(
+    usuario_id: int,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
+    membresia_yo = _membresia(db, usuario)
+    if membresia_yo is None:
+        raise HTTPException(status_code=404, detail="No estás en ningún grupo")
+
+    membresia_objetivo = (
+        db.query(models.Membresia)
+        .filter(
+            models.Membresia.grupo_id == membresia_yo.grupo_id,
+            models.Membresia.usuario_id == usuario_id,
+        )
+        .first()
+    )
+    if membresia_objetivo is None:
+        raise HTTPException(status_code=404, detail="Ese usuario no pertenece a tu grupo")
+
+    if usuario_id != usuario.id:
+        if not membresia_yo.comparte:
+            raise HTTPException(
+                status_code=403,
+                detail="Activá 'Compartir mi progreso' para ver el perfil de tus compañeros",
+            )
+        if not membresia_objetivo.comparte:
+            raise HTTPException(
+                status_code=403,
+                detail="Ese compañero no comparte su progreso",
+            )
+
+    return grupos_service.perfil_payload(membresia_objetivo.usuario, db)
+
+
 @router.put("/mio/preferencias", response_model=schemas.GrupoOut)
 async def actualizar_preferencias(
     datos: schemas.GrupoPreferenciasUpdate,
