@@ -6,8 +6,9 @@ anotación, sin `asyncio.to_thread`.
 import secrets
 import time
 from datetime import datetime
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import models
@@ -148,6 +149,56 @@ def cursando_payload(grupo: models.Grupo, db: Session) -> List[dict]:
     ]
 
 
+def ranking_payload(
+    grupo: models.Grupo,
+    db: Session,
+    usuario: Optional[models.Usuario] = None,
+) -> List[dict]:
+    """Ranking de materias aprobadas (PROMOCIONADA) de los miembros del
+    grupo que comparten progreso (comparte=True). Ordenado de mayor a menor
+    cantidad de aprobadas, desempatando por usuario_id ascendente."""
+    miembros_que_comparten = [m for m in grupo.miembros if m.comparte]
+    if not miembros_que_comparten:
+        return []
+
+    ids_comparten = [m.usuario_id for m in miembros_que_comparten]
+    filas = (
+        db.query(models.EstadoMateria.usuario_id, func.count(models.EstadoMateria.id))
+        .filter(
+            models.EstadoMateria.usuario_id.in_(ids_comparten),
+            models.EstadoMateria.estado == models.EstadoEnum.PROMOCIONADA,
+        )
+        .group_by(models.EstadoMateria.usuario_id)
+        .all()
+    )
+    aprobadas = {uid: total for uid, total in filas}
+
+    usuario_actual_id = usuario.id if isinstance(usuario, models.Usuario) else usuario
+
+    entradas = [
+        {
+            "usuario_id": m.usuario_id,
+            "apodo": m.usuario.apodo,
+            "materias_aprobadas": aprobadas.get(m.usuario_id, 0),
+            "soy_yo": bool(usuario_actual_id is not None and m.usuario_id == usuario_actual_id),
+        }
+        for m in miembros_que_comparten
+    ]
+
+    entradas.sort(key=lambda x: (-x["materias_aprobadas"], x["usuario_id"]))
+
+    return [
+        {
+            "posicion": pos,
+            "usuario_id": e["usuario_id"],
+            "apodo": e["apodo"],
+            "materias_aprobadas": e["materias_aprobadas"],
+            "soy_yo": e["soy_yo"],
+        }
+        for pos, e in enumerate(entradas, start=1)
+    ]
+
+
 async def anunciar_cambio_cursando(
     usuario: models.Usuario,
     materia: models.Materia,
@@ -174,3 +225,51 @@ async def anunciar_cambio_cursando(
             "cursando": entra,
         },
     )
+
+
+def resumen_por_anio(estados: List[models.EstadoMateria]) -> List[dict]:
+    conteo: Dict[int, int] = {}
+    for e in estados:
+        if e.estado == models.EstadoEnum.PROMOCIONADA and e.fecha_aprobacion is not None:
+            anio = e.fecha_aprobacion.year
+            conteo[anio] = conteo.get(anio, 0) + 1
+    return [{"anio": a, "cantidad": conteo[a]} for a in sorted(conteo.keys())]
+
+
+def perfil_payload(usuario_objetivo: models.Usuario, db: Session) -> dict:
+    estados_aprobadas = (
+        db.query(models.EstadoMateria)
+        .join(models.Materia, models.Materia.id == models.EstadoMateria.materia_id)
+        .filter(
+            models.EstadoMateria.usuario_id == usuario_objetivo.id,
+            models.EstadoMateria.estado == models.EstadoEnum.PROMOCIONADA,
+            models.EstadoMateria.fecha_aprobacion.isnot(None),
+        )
+        .order_by(models.EstadoMateria.fecha_aprobacion.desc())
+        .all()
+    )
+    total_aprobadas = (
+        db.query(models.EstadoMateria)
+        .filter(
+            models.EstadoMateria.usuario_id == usuario_objetivo.id,
+            models.EstadoMateria.estado == models.EstadoEnum.PROMOCIONADA,
+        )
+        .count()
+    )
+    materias = [
+        {
+            "materia_id": e.materia_id,
+            "codigo": e.materia.codigo,
+            "nombre": e.materia.nombre,
+            "fecha_aprobacion": e.fecha_aprobacion,
+        }
+        for e in estados_aprobadas
+    ]
+    return {
+        "usuario_id": usuario_objetivo.id,
+        "apodo": usuario_objetivo.apodo,
+        "total_aprobadas": total_aprobadas,
+        "por_anio": resumen_por_anio(estados_aprobadas),
+        "materias": materias,
+    }
+

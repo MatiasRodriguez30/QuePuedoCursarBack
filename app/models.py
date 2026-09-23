@@ -212,6 +212,9 @@ class EstadoMateria(Base):
     estado = Column(
         SAEnum(EstadoEnum), nullable=False, default=EstadoEnum.NO_CURSADA
     )
+    # Cuándo pasó a PROMOCIONADA (se limpia a None si se deshace el cambio).
+    # La columna se agrega en app.migraciones (ver aplicar_migraciones).
+    fecha_aprobacion = Column(DateTime, nullable=True)
 
     materia = relationship("Materia", back_populates="estados")
     usuario = relationship("Usuario", back_populates="estados")

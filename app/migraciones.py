@@ -36,16 +36,27 @@ def _backup(engine, sufijo: str) -> Optional[Path]:
     return destino
 
 
-def aplicar_migraciones(engine) -> None:
+def _agregar_columna_si_falta(engine, tabla: str, columna: str, ddl: str, sufijo_backup: str) -> None:
+    """Agrega `columna` a `tabla` si todavía no existe, con backup previo.
+    Cada migración es independiente: que ya se haya aplicado una no evita que
+    se revisen las demás (antes esto no era así y una migración vieja
+    "cortaba" a las que se agregaran después)."""
     with engine.connect() as conn:
         tablas = {fila[0] for fila in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()}
-        if "usuarios" not in tablas:
+        if tabla not in tablas:
             return
-        if "apodo" in _columnas(conn, "usuarios"):
+        if columna in _columnas(conn, tabla):
             return
 
-    _backup(engine, "preGrupos")
+    _backup(engine, sufijo_backup)
     with engine.begin() as conn:
         # Re-chequeo dentro de la transacción por si otro proceso ya migró.
-        if "apodo" not in _columnas(conn, "usuarios"):
-            conn.execute(text("ALTER TABLE usuarios ADD COLUMN apodo VARCHAR"))
+        if columna not in _columnas(conn, tabla):
+            conn.execute(text("ALTER TABLE {} ADD COLUMN {}".format(tabla, ddl)))
+
+
+def aplicar_migraciones(engine) -> None:
+    _agregar_columna_si_falta(engine, "usuarios", "apodo", "apodo VARCHAR", "preGrupos")
+    _agregar_columna_si_falta(
+        engine, "estados_materia", "fecha_aprobacion", "fecha_aprobacion DATETIME", "preFechaAprobacion"
+    )
