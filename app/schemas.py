@@ -206,6 +206,7 @@ class EstadoMateriaOut(BaseModel):
     materia_id: int
     usuario_id: int
     estado: EstadoEnum
+    fecha_aprobacion: Optional[datetime] = None
     materia: MateriaOut
 
     class Config:

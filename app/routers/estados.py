@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -52,6 +53,7 @@ async def resetear_estados(
     materias_cursando = [e.materia for e in estados if e.estado == models.EstadoEnum.CURSANDO]
     for e in estados:
         e.estado = models.EstadoEnum.NO_CURSADA
+        e.fecha_aprobacion = None
     db.commit()
 
     salida = [schemas.EstadoMateriaOut.from_orm(e) for e in estados]
@@ -88,6 +90,13 @@ async def actualizar_estado(
         db.add(estado)
     else:
         estado.estado = datos.estado
+
+    # Fecha de aprobación: se fija al entrar a PROMOCIONADA, se limpia si se
+    # deshace (ej. Deshacer/Rehacer o corregir un estado marcado por error).
+    if datos.estado == models.EstadoEnum.PROMOCIONADA and estado_previo != models.EstadoEnum.PROMOCIONADA:
+        estado.fecha_aprobacion = datetime.utcnow()
+    elif datos.estado != models.EstadoEnum.PROMOCIONADA:
+        estado.fecha_aprobacion = None
 
     db.commit()
     db.refresh(estado)
