@@ -22,6 +22,23 @@ def listar_estados(
     return db.query(models.EstadoMateria).filter(models.EstadoMateria.usuario_id == usuario.id).all()
 
 
+@router.get("/resumen-anual", response_model=List[schemas.AnioResumen])
+def resumen_anual(
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
+    estados = (
+        db.query(models.EstadoMateria)
+        .filter(
+            models.EstadoMateria.usuario_id == usuario.id,
+            models.EstadoMateria.estado == models.EstadoEnum.PROMOCIONADA,
+            models.EstadoMateria.fecha_aprobacion.isnot(None),
+        )
+        .all()
+    )
+    return grupos_service.resumen_por_anio(estados)
+
+
 @router.get("/{materia_id}", response_model=schemas.EstadoMateriaOut)
 def obtener_estado(
     materia_id: int,

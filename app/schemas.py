@@ -87,6 +87,26 @@ class RankingEntry(BaseModel):
     soy_yo: bool
 
 
+class AnioResumen(BaseModel):
+    anio: int
+    cantidad: int
+
+
+class MateriaAprobadaEntry(BaseModel):
+    materia_id: int
+    codigo: str
+    nombre: str
+    fecha_aprobacion: datetime
+
+
+class PerfilUsuarioOut(BaseModel):
+    usuario_id: int
+    apodo: str
+    total_aprobadas: int
+    por_anio: List[AnioResumen]
+    materias: List[MateriaAprobadaEntry]
+
+
 class UsuarioAdminOut(BaseModel):
     """Igual que UsuarioOut, más datos que sólo le interesan al panel de
     administración (ver GET /usuarios, admin-only)."""

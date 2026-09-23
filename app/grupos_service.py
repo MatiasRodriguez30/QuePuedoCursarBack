@@ -225,3 +225,51 @@ async def anunciar_cambio_cursando(
             "cursando": entra,
         },
     )
+
+
+def resumen_por_anio(estados: List[models.EstadoMateria]) -> List[dict]:
+    conteo: Dict[int, int] = {}
+    for e in estados:
+        if e.estado == models.EstadoEnum.PROMOCIONADA and e.fecha_aprobacion is not None:
+            anio = e.fecha_aprobacion.year
+            conteo[anio] = conteo.get(anio, 0) + 1
+    return [{"anio": a, "cantidad": conteo[a]} for a in sorted(conteo.keys())]
+
+
+def perfil_payload(usuario_objetivo: models.Usuario, db: Session) -> dict:
+    estados_aprobadas = (
+        db.query(models.EstadoMateria)
+        .join(models.Materia, models.Materia.id == models.EstadoMateria.materia_id)
+        .filter(
+            models.EstadoMateria.usuario_id == usuario_objetivo.id,
+            models.EstadoMateria.estado == models.EstadoEnum.PROMOCIONADA,
+            models.EstadoMateria.fecha_aprobacion.isnot(None),
+        )
+        .order_by(models.EstadoMateria.fecha_aprobacion.desc())
+        .all()
+    )
+    total_aprobadas = (
+        db.query(models.EstadoMateria)
+        .filter(
+            models.EstadoMateria.usuario_id == usuario_objetivo.id,
+            models.EstadoMateria.estado == models.EstadoEnum.PROMOCIONADA,
+        )
+        .count()
+    )
+    materias = [
+        {
+            "materia_id": e.materia_id,
+            "codigo": e.materia.codigo,
+            "nombre": e.materia.nombre,
+            "fecha_aprobacion": e.fecha_aprobacion,
+        }
+        for e in estados_aprobadas
+    ]
+    return {
+        "usuario_id": usuario_objetivo.id,
+        "apodo": usuario_objetivo.apodo,
+        "total_aprobadas": total_aprobadas,
+        "por_anio": resumen_por_anio(estados_aprobadas),
+        "materias": materias,
+    }
+
