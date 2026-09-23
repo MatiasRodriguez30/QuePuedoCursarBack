@@ -157,9 +157,6 @@ def ranking_payload(
     """Ranking de materias aprobadas (PROMOCIONADA) de los miembros del
     grupo que comparten progreso (comparte=True). Ordenado de mayor a menor
     cantidad de aprobadas, desempatando por usuario_id ascendente."""
-    if hasattr(usuario, "query") and not hasattr(db, "query"):
-        db, usuario = usuario, db
-
     miembros_que_comparten = [m for m in grupo.miembros if m.comparte]
     if not miembros_que_comparten:
         return []
