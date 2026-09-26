@@ -273,3 +273,7 @@ def perfil_payload(usuario_objetivo: models.Usuario, db: Session) -> dict:
         "materias": materias,
     }
 
+
+
+def _prueba_ci() -> list[int]:
+    return []
