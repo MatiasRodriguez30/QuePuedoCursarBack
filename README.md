@@ -32,6 +32,25 @@ Carga las 37 materias del Plan 2023 de Ing. en Sistemas (UTN) + 10 electivas
 del 2do semestre 2026, con todas sus correlativas. Es seguro re-correrlo:
 borra lo que haya antes de recargar.
 
+## Verificación y CI
+
+Antes de pedir un merge:
+
+```bash
+pip install -r requirements-dev.txt
+python scripts/verify.py
+```
+
+Busca construcciones que no funcionan en **Python 3.8** (la versión de la
+tablet: `X | None` o `list[int]` en anotaciones, `match`, `asyncio.to_thread`,
+`removeprefix`, `zoneinfo`, `datetime.UTC`) y corre todos los tests. Tiene que
+terminar en `VERIFICACION: OK`.
+
+En GitHub, cada PR y cada push a `main` corren automáticamente
+(`.github/workflows/ci.yml`): tests en un **Python 3.8 real**, tests en
+Python 3.12 y búsqueda de secretos (gitleaks). La rama `main` está protegida:
+no se puede pushear directo ni mergear un PR si alguno de esos controles falla.
+
 ## Despliegue en la tablet (Termux) + Cloudflare Tunnel
 
 La idea: el backend corre en una tablet Android vía Termux, expuesto a
