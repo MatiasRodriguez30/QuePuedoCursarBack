@@ -1,0 +1,57 @@
+# Controles automáticos de cada PR y de cada push a main.
+# La protección de la rama main exige que estos jobs pasen antes de mergear.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tests-py38:
+    # Misma versión de Python que la tablet de producción: si algo no corre
+    # en 3.8 (asyncio.to_thread, "X | None", list[int], etc.), falla acá y no allá.
+    name: Tests en Python 3.8 (tablet)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - name: Instalar dependencias
+        run: pip install -r requirements-dev.txt
+      - name: Compilar todo el código con Python 3.8
+        run: python -m compileall -q app scripts tests
+      - name: Tests
+        run: python -m pytest -q
+
+  tests-actual:
+    name: Tests en Python 3.12
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - name: Instalar dependencias
+        run: pip install -r requirements-dev.txt
+      - name: Tests
+        run: python -m pytest -q
+
+  secretos:
+    name: Busqueda de secretos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
