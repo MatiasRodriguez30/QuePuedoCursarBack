@@ -60,3 +60,9 @@ def aplicar_migraciones(engine) -> None:
     _agregar_columna_si_falta(
         engine, "estados_materia", "fecha_aprobacion", "fecha_aprobacion DATETIME", "preFechaAprobacion"
     )
+    # Eventos existentes (todos institucionales hasta ahora) quedan con
+    # personal=0: no cambia nada para lo ya cargado, sólo habilita que los
+    # nuevos eventos de un usuario no-admin se guarden como personales.
+    _agregar_columna_si_falta(
+        engine, "eventos", "personal", "personal BOOLEAN NOT NULL DEFAULT 0", "preEventoPersonal"
+    )

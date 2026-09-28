@@ -249,9 +249,11 @@ class OrigenEvento(str, enum.Enum):
 
 
 class Evento(Base):
-    """Agenda compartida entre todos los usuarios (institucional + personal).
-    No hay progreso por-usuario acá como en EstadoMateria: cualquier usuario
-    logueado ve todos los eventos, sólo un ADMIN puede crear/editar/borrar."""
+    """Agenda: eventos institucionales (compartidos, sólo ADMIN los crea/edita)
+    y eventos personales (creados por cualquier usuario, visibles sólo para
+    quien los creó). `personal` distingue unos de otros; `creado_por_id` es
+    el dueño en el caso personal, o sólo un dato de auditoría si es
+    institucional."""
 
     __tablename__ = "eventos"
 
@@ -263,6 +265,8 @@ class Evento(Base):
     hora_inicio = Column(Time, nullable=True)  # null = evento de todo el día
     hora_fin = Column(Time, nullable=True)
     origen = Column(SAEnum(OrigenEvento), nullable=False, default=OrigenEvento.MANUAL)
+    # True = sólo lo ve quien lo creó. False = institucional, para todos.
+    personal = Column(Boolean, nullable=False, default=False)
     # UID del VEVENT de origen, sólo para eventos IMPORTADOs: evita duplicar
     # si el script de importación se corre más de una vez sobre el mismo .ics.
     uid_ics = Column(String, unique=True, nullable=True)

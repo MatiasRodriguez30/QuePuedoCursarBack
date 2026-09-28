@@ -284,6 +284,9 @@ class EventoCreate(BaseModel):
     fecha: date
     hora_inicio: Optional[time] = None
     hora_fin: Optional[time] = None
+    # True = sólo lo va a ver quien lo crea. False = institucional, para
+    # todos (sólo un ADMIN puede crear uno institucional).
+    personal: bool = False
 
 
 class EventoUpdate(BaseModel):
@@ -293,6 +296,7 @@ class EventoUpdate(BaseModel):
     fecha: Optional[date] = None
     hora_inicio: Optional[time] = None
     hora_fin: Optional[time] = None
+    personal: Optional[bool] = None
 
 
 class EventoOut(BaseModel):
@@ -304,6 +308,7 @@ class EventoOut(BaseModel):
     hora_inicio: Optional[time] = None
     hora_fin: Optional[time] = None
     origen: OrigenEvento
+    personal: bool
     creado_por_id: Optional[int] = None
 
     class Config:

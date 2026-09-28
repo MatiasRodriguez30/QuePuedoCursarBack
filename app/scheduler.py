@@ -64,10 +64,26 @@ def enviar_recordatorios_del_dia_siguiente() -> None:
             logger.info("Sin eventos para %s, no se envían recordatorios.", manana)
             return
 
-        html = _formatear_html(eventos, manana)
+        # Institucionales van en el mail de todos. Los personales sólo en el
+        # de quien los creó: antes se mandaba la misma lista completa a todo
+        # el mundo, mezclando el evento personal de un usuario en el mail de
+        # cualquier otro.
+        institucionales = [e for e in eventos if not e.personal]
+        personales_por_usuario = {}
+        for e in eventos:
+            if e.personal and e.creado_por_id is not None:
+                personales_por_usuario.setdefault(e.creado_por_id, []).append(e)
+
         usuarios = db.query(models.Usuario).all()
         asunto = f"Recordatorio: agenda de mañana ({manana.strftime('%d/%m')})"
-        enviados = sum(1 for u in usuarios if enviar_email(u.email, asunto, html))
+        enviados = 0
+        for u in usuarios:
+            propios = institucionales + personales_por_usuario.get(u.id, [])
+            if not propios:
+                continue  # nada suyo para mañana: no le mandamos un mail vacío
+            propios.sort(key=lambda e: (e.hora_inicio is not None, e.hora_inicio))
+            if enviar_email(u.email, asunto, _formatear_html(propios, manana)):
+                enviados += 1
         logger.info("Recordatorios de %s: %d/%d mails enviados.", manana, enviados, len(usuarios))
     finally:
         db.close()
