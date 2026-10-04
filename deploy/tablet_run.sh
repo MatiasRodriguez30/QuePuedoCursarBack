@@ -89,19 +89,53 @@ start_tunnel_if_needed() {
   fi
 }
 
+avisar() {
+  # Aviso por Telegram. No hace nada si el bot no está configurado y nunca
+  # frena este script (ver deploy/notificar.py).
+  "$VENV_DIR/bin/python" "$REPO_DIR/deploy/notificar.py" "$*" >/dev/null 2>&1 || true
+}
+
 ensure_venv
 start_uvicorn
 start_tunnel_if_needed
+avisar "Servidor arrancó. Commit $(git log -1 --format='%h %s')"
 
 log "Sirviendo. Chequeando updates de git cada ${CHECK_INTERVAL}s (rama: $BRANCH)."
+
+UVICORN_CAIDAS=0  # reinicios seguidos por caída (para no avisar una vez por minuto)
+TUNEL_CAIDO=0
 
 while true; do
   sleep "$CHECK_INTERVAL"
 
-  # Si cloudflared murió (red caída, etc.), levantarlo de nuevo.
+  # Si cloudflared murió (red caída, etc.), levantarlo de nuevo y avisar.
   if ! kill -0 "$(cat "$PID_TUNNEL" 2>/dev/null)" 2>/dev/null; then
     log "cloudflared no está corriendo, reintentando..."
+    if [ "$TUNEL_CAIDO" -eq 0 ]; then
+      avisar "ALERTA: el túnel de Cloudflare se cayó, la web no responde. Reintentando..."
+      TUNEL_CAIDO=1
+    fi
     start_tunnel_if_needed
+  elif [ "$TUNEL_CAIDO" -eq 1 ]; then
+    avisar "El túnel de Cloudflare volvió."
+    TUNEL_CAIDO=0
+  fi
+
+  # Si uvicorn murió (Android lo mata por falta de memoria, un error al
+  # arrancar...), levantarlo de nuevo y avisar. Antes quedaba caído hasta el
+  # próximo deploy. Se avisa en la primera caída y en la 5.ª seguida.
+  if ! kill -0 "$(cat "$PID_UVICORN" 2>/dev/null)" 2>/dev/null; then
+    UVICORN_CAIDAS=$((UVICORN_CAIDAS + 1))
+    log "uvicorn no está corriendo (caída seguida n.º $UVICORN_CAIDAS), reiniciando..."
+    if [ "$UVICORN_CAIDAS" -eq 1 ]; then
+      avisar "ALERTA: la API (uvicorn) se cayó. Reiniciando..."
+    elif [ "$UVICORN_CAIDAS" -eq 5 ]; then
+      avisar "ALERTA: la API sigue caída tras 5 reintentos. Hay que mirar uvicorn.log en la tablet."
+    fi
+    start_uvicorn
+  elif [ "$UVICORN_CAIDAS" -gt 0 ]; then
+    avisar "La API volvió a funcionar."
+    UVICORN_CAIDAS=0
   fi
 
   git fetch origin "$BRANCH" --quiet 2>>"$LOG_UVICORN"
@@ -121,5 +155,6 @@ while true; do
 
     start_uvicorn
     log "Redeploy completo."
+    avisar "Deploy OK: $(git log -1 --format='%h %s')"
   fi
 done

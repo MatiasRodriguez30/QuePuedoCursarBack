@@ -28,3 +28,10 @@ _cargar_env()
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 MAIL_FROM = os.environ.get("MAIL_FROM", "Qué Puedo Cursar <no-reply@takana.online>")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://app.takana.online")
+
+# Bot de Telegram (ver app/telegram_api.py y app/telegram_bot.py). Sin token
+# o sin chat id, el bot simplemente no arranca y los avisos no se envían.
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+# Cuenta de Qué Puedo Cursar a la que responde el bot (/hoy, /cursar...).
+TELEGRAM_USUARIO_EMAIL = os.environ.get("TELEGRAM_USUARIO_EMAIL", "")

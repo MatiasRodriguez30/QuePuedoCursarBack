@@ -26,7 +26,7 @@ jobs:
       - name: Instalar dependencias
         run: pip install -r requirements-dev.txt
       - name: Compilar todo el código con Python 3.8
-        run: python -m compileall -q app scripts tests
+        run: python -m compileall -q app deploy scripts tests
       - name: Tests
         run: python -m pytest -q
 

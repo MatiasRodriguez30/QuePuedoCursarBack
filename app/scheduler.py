@@ -14,9 +14,12 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 
+from sqlalchemy import or_
+
 from app.database import SessionLocal
-from app import models
+from app import config, models
 from app.email_utils import enviar_email
+from app.telegram_api import enviar_mensaje as enviar_telegram
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +51,28 @@ def _formatear_html(eventos: list, fecha) -> str:
         f"<ul>{filas}</ul>"
         f"<p style='color:#888;font-size:12px'>Qué Puedo Cursar — recordatorio automático</p>"
     )
+
+
+def _formatear_texto(eventos: list, titulo: str) -> str:
+    """Versión en texto plano de la agenda, para Telegram."""
+    lineas = [titulo]
+    for e in eventos:
+        horario = e.hora_inicio.strftime("%H:%M") if e.hora_inicio else "Todo el día"
+        lugar = f" ({e.ubicacion})" if e.ubicacion else ""
+        marca = " [personal]" if e.personal else ""
+        lineas.append(f"• {horario} — {e.titulo}{lugar}{marca}")
+    return "\n".join(lineas)
+
+
+def eventos_visibles(db, fecha, usuario_id) -> list:
+    """Eventos de `fecha` que ve ese usuario: los institucionales más sus
+    propios personales (nunca los personales de otro). `usuario_id` None =
+    sólo institucionales."""
+    cond = models.Evento.personal == False  # noqa: E712
+    if usuario_id is not None:
+        cond = or_(cond, models.Evento.creado_por_id == usuario_id)
+    eventos = db.query(models.Evento).filter(models.Evento.fecha == fecha).filter(cond).all()
+    return sorted(eventos, key=lambda e: (e.hora_inicio is not None, e.hora_inicio))
 
 
 def enviar_recordatorios_del_dia_siguiente() -> None:
@@ -84,6 +109,10 @@ def enviar_recordatorios_del_dia_siguiente() -> None:
             propios.sort(key=lambda e: (e.hora_inicio is not None, e.hora_inicio))
             if enviar_email(u.email, asunto, _formatear_html(propios, manana)):
                 enviados += 1
+            # El bot de Telegram es de una sola cuenta (la del dueño): sólo a
+            # ella le llega, con lo suyo, igual que el mail.
+            if config.TELEGRAM_USUARIO_EMAIL and u.email == config.TELEGRAM_USUARIO_EMAIL.strip().lower():
+                enviar_telegram(_formatear_texto(propios, f"Agenda de mañana ({manana.strftime('%d/%m')})"))
         logger.info("Recordatorios de %s: %d/%d mails enviados.", manana, enviados, len(usuarios))
     finally:
         db.close()

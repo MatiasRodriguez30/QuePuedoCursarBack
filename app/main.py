@@ -12,6 +12,7 @@ from app.database import engine, SessionLocal
 from app.migraciones import aplicar_migraciones
 from app.ws_manager import manager
 from app.scheduler import loop_recordatorios
+from app.telegram_bot import iniciar_bot
 from app.routers import materias, prerequisitos, estados, consultas, config, eventos, carreras, usuarios, grupos, db_admin, auth as auth_router
 
 # Crea las tablas si no existen y agrega las columnas nuevas a las que ya existen
@@ -89,6 +90,7 @@ app.include_router(db_admin.router)
 @app.on_event("startup")
 async def iniciar_scheduler():
     asyncio.create_task(loop_recordatorios())
+    iniciar_bot()  # hilo con long polling; no hace nada si falta token o chat id
 
 
 # ─── WebSocket (FIX 2) ────────────────────────────────────────────────────────
