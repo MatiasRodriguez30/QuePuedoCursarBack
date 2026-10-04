@@ -20,7 +20,7 @@ import subprocess
 import sys
 
 RAIZ = pathlib.Path(__file__).resolve().parent.parent
-CARPETAS = ("app", "scripts", "tests")
+CARPETAS = ("app", "deploy", "scripts", "tests")
 
 GENERICOS_NUEVOS = {"list", "dict", "tuple", "set", "frozenset", "type"}
 ATRIBUTOS_NUEVOS = {

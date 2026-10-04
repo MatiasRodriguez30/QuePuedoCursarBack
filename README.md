@@ -51,6 +51,29 @@ En GitHub, cada PR y cada push a `main` corren automáticamente
 Python 3.12 y búsqueda de secretos (gitleaks). La rama `main` está protegida:
 no se puede pushear directo ni mergear un PR si alguno de esos controles falla.
 
+## Bot de Telegram (opcional)
+
+Un bot personal que corre **dentro del mismo proceso de uvicorn** (un hilo con long polling: no necesita URL pública, túnel ni puertos abiertos, ni dependencias nuevas, solo `urllib`). Sin `TELEGRAM_BOT_TOKEN` y `TELEGRAM_CHAT_ID` no arranca y todo sigue igual.
+
+| Comando | Qué responde |
+|---|---|
+| `/hoy`, `/manana` | Agenda del día: eventos institucionales + los personales **de tu cuenta** (nunca los de otro usuario) |
+| `/cursar` | Materias que podés cursar ahora (mismas reglas de correlatividad que la app) |
+| `/estado` | Uptime de la API, estado del túnel, RAM y disco libres, commit y último deploy |
+
+Además manda por Telegram: el recordatorio de las 21:00 (el mismo contenido que el mail, solo para tu cuenta) y los avisos del servidor: arranque, deploy OK, y caída/recuperación de uvicorn o del túnel (`deploy/tablet_run.sh`; si uvicorn muere ahora se reinicia solo y avisa en la 1.ª y la 5.ª caída seguida).
+
+**Seguridad:** el bot solo le hace caso al chat de `TELEGRAM_CHAT_ID`; cualquier otro mensaje se ignora sin respuesta. El token es una clave: va únicamente en el `.env` de la tablet (nunca en git ni en el chat).
+
+**Configuración (una vez):**
+
+1. En Telegram, hablá con `@BotFather` → `/newbot` y copiá el token.
+2. En la tablet, agregá `TELEGRAM_BOT_TOKEN=...` y `TELEGRAM_USUARIO_EMAIL=tu-email-de-la-app` al `.env`.
+3. Escribile "hola" a tu bot y corré `./venv/bin/python scripts/telegram_chat_id.py`; copiá el número a `TELEGRAM_CHAT_ID` en el `.env`.
+4. Reiniciá la API para que lea el `.env`.
+
+> Los avisos de caída solo pueden salir si la tablet tiene red: si se corta la luz o el Wi-Fi, no hay forma de que avise desde adentro. Para eso hace falta un monitor externo.
+
 ## Despliegue en la tablet (Termux) + Cloudflare Tunnel
 
 La idea: el backend corre en una tablet Android vía Termux, expuesto a
