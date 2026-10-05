@@ -273,3 +273,34 @@ def test_comando_consumo_del_bot(bot_listo):
     texto = telegram_bot.responder("/consumo", CHAT)
     assert texto.startswith("Consumo del equipo") and "enchufado" in texto
     assert telegram_bot.responder("/consumo", "999") is None
+
+
+# ─── Detalles: kernels viejos y bind mounts ───────────────────────────────────
+
+def test_memoria_sin_memavailable_se_aproxima(tmp_path, monkeypatch):
+    """La tablet (Android 6, kernel viejo) no trae MemAvailable."""
+    proc = tmp_path / "proc"
+    _escribir(proc / "meminfo", "MemTotal: 1024000 kB\nMemFree: 204800 kB\nBuffers: 51200 kB\nCached: 102400 kB\n")
+    monkeypatch.setenv("HOST_PROC", str(proc))
+    assert sistema_info.memoria() == (1000, 350)   # 200 + 50 + 100 MB reclamables
+
+
+def test_discos_no_repite_un_bind_mount_del_mismo_disco(tmp_path, monkeypatch):
+    """Dos rutas con distinto st_dev pero el mismo tamaño y espacio libre (el
+    volumen /data de Docker sobre el mismo SSD) se muestran una sola vez."""
+    from collections import namedtuple
+    Uso = namedtuple("Uso", "total used free")
+    monkeypatch.setattr(sistema_info.shutil, "disk_usage", lambda r: Uso(250 * 1024 ** 3, 10 * 1024 ** 3, 212 * 1024 ** 3))
+    dev = iter(range(100, 200))
+    monkeypatch.setattr(sistema_info.os, "stat", lambda r: type("S", (), {"st_dev": next(dev)})())
+    assert [n for n, _, _ in sistema_info.discos([("Sistema", "/"), ("Datos", "/data")])] == ["Sistema"]
+
+
+def test_discos_distintos_se_muestran_los_dos(monkeypatch):
+    from collections import namedtuple
+    Uso = namedtuple("Uso", "total used free")
+    tamanos = {"/": Uso(250 * 1024 ** 3, 0, 212 * 1024 ** 3), "/data": Uso(298 * 1024 ** 3, 0, 290 * 1024 ** 3)}
+    monkeypatch.setattr(sistema_info.shutil, "disk_usage", lambda r: tamanos[r])
+    dev = iter(range(100, 200))
+    monkeypatch.setattr(sistema_info.os, "stat", lambda r: type("S", (), {"st_dev": next(dev)})())
+    assert [n for n, _, _ in sistema_info.discos([("Sistema", "/"), ("Datos", "/data")])] == ["Sistema", "Datos"]

@@ -263,7 +263,7 @@ def _loop(detener: threading.Event) -> None:
             logger.error("Telegram: el token del bot fue rechazado; el bot se detiene.")
             return
         except Exception as e:
-            logger.warning("Telegram: error consultando updates (%s)", e.__class__.__name__)
+            logger.warning("Telegram: error consultando updates (%s: %s)", e.__class__.__name__, repr(getattr(e, "reason", ""))[:80])
             detener.wait(espera)
             espera = min(espera * 2, 300)
             continue
