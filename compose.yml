@@ -1,0 +1,27 @@
+# Qué Puedo Cursar en el servidor casero.
+#   docker compose up -d --build     # levantar / actualizar
+#   docker compose logs -f api       # ver logs
+#   docker compose ps                # estado (api debe figurar "healthy")
+#
+# Ambos servicios usan la red del host (network_mode: host): así el túnel le
+# pega a 127.0.0.1:8000 igual que en la tablet, y uvicorn confía en el
+# X-Forwarded-For sólo de 127.0.0.1 (si no, el rate limiting vería la IP del
+# puente de Docker para todos los usuarios).
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env            # RESEND_API_KEY, TELEGRAM_*, etc. (no se versiona)
+    volumes:
+      - ./data:/data          # acá queda plan_estudios.db y sus backups .bak-*
+
+  tunel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    network_mode: host
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./cloudflared:/etc/cloudflared:ro   # config.yml + <uuid>.json (no se versionan)
+    depends_on:
+      - api

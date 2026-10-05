@@ -74,6 +74,21 @@ Además manda por Telegram: el recordatorio de las 21:00 (el mismo contenido que
 
 > Los avisos de caída solo pueden salir si la tablet tiene red: si se corta la luz o el Wi-Fi, no hay forma de que avise desde adentro. Para eso hace falta un monitor externo.
 
+## Servidor casero (Docker)
+
+Alternativa a la tablet: `compose.yml` levanta la API (Python 3.12) y el túnel de Cloudflare, ambos con `restart: unless-stopped`. Hace falta Docker con el plugin `compose`.
+
+Archivos que **no** se versionan y hay que crear en el servidor: `.env` (igual que en la tablet), `cloudflared/config.yml` (ver `deploy/servidor/cloudflared-config.example.yml`) y `cloudflared/<uuid>.json` (credenciales del túnel). La base queda en `./data/plan_estudios.db` (variable `DB_PATH`).
+
+```bash
+docker compose up -d --build    # levantar o actualizar
+docker compose ps               # la api debe figurar "healthy"
+docker compose logs -f api      # logs
+docker compose restart api      # reiniciar solo la API
+```
+
+Cuidado: no correr la tablet y el servidor a la vez con el mismo túnel y bases distintas (Cloudflare repartiría los pedidos entre las dos).
+
 ## Despliegue en la tablet (Termux) + Cloudflare Tunnel
 
 La idea: el backend corre en una tablet Android vía Termux, expuesto a

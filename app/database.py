@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from sqlalchemy import create_engine, event
@@ -6,7 +7,9 @@ from sqlalchemy.orm import sessionmaker, DeclarativeBase
 # Ruta absoluta, independiente del directorio de trabajo desde el que se
 # lance uvicorn (antes usaba una ruta relativa y terminaba creando un
 # plan_estudios.db distinto según el cwd).
-DB_PATH = Path(__file__).resolve().parent.parent / "plan_estudios.db"
+# DB_PATH permite mover la base fuera del repo (en Docker vive en un volumen,
+# ver compose.yml). Sin esa variable queda donde siempre: en la raíz del repo.
+DB_PATH = Path(os.environ.get("DB_PATH") or Path(__file__).resolve().parent.parent / "plan_estudios.db")
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 engine = create_engine(

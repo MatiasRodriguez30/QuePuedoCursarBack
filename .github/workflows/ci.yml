@@ -55,3 +55,22 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  imagen-docker:
+    name: Imagen Docker (servidor casero)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Construir la imagen
+        run: docker build -t qpc-api .
+      - name: Arrancarla y comprobar que responde
+        run: |
+          mkdir data && chmod 777 data
+          docker run -d --name qpc -p 8000:8000 -v "$PWD/data:/data" qpc-api
+          for i in $(seq 1 30); do
+            curl -fsS -o /dev/null http://127.0.0.1:8000/openapi.json && break
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8000/openapi.json | python3 -c "import json,sys; print(len(json.load(sys.stdin)['paths']), 'rutas')"
+          docker logs qpc | tail -20
+          test -f data/plan_estudios.db  # la base se creó en el volumen, no en la imagen

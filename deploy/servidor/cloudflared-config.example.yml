@@ -1,0 +1,10 @@
+# Copiar a ./cloudflared/config.yml en el servidor y completar el UUID.
+# El archivo de credenciales <UUID>.json va en la misma carpeta (es un secreto:
+# nunca se versiona ni se muestra).
+tunnel: UUID-DEL-TUNEL
+credentials-file: /etc/cloudflared/UUID-DEL-TUNEL.json
+
+ingress:
+  - hostname: quepuedocursar.takana.online
+    service: http://127.0.0.1:8000
+  - service: http_status:404
