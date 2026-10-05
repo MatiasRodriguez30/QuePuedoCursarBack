@@ -35,3 +35,5 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 # Cuenta de Qué Puedo Cursar a la que responde el bot (/hoy, /cursar...).
 TELEGRAM_USUARIO_EMAIL = os.environ.get("TELEGRAM_USUARIO_EMAIL", "")
+# Dominio público de la API: el bot lo consulta en /servicios (prueba de punta a punta).
+API_PUBLICA_URL = os.environ.get("API_PUBLICA_URL", "https://quepuedocursar.takana.online")

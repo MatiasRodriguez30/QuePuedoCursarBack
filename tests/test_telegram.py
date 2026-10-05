@@ -179,10 +179,11 @@ def test_cursar_sin_usuario_configurado_explica_que_falta(configurado, bot_db, m
     assert "TELEGRAM_USUARIO_EMAIL" in telegram_bot.responder("/cursar", CHAT)
 
 
-def test_estado_incluye_las_secciones_y_no_muestra_secretos(configurado, bot_db):
+def test_estado_incluye_las_secciones_y_no_muestra_secretos(configurado, bot_db, monkeypatch):
     _usuario(bot_db, "dueno@mail.com")
+    monkeypatch.setattr(telegram_bot, "_probar_publico", lambda: "OK (HTTP 200, 90 ms)")  # sin red
     texto = telegram_bot.responder("/estado", CHAT)
-    for parte in ("Estado del servidor", "API:", "RAM libre", "Disco", "Commit", "Último deploy"):
+    for parte in ("Servicios de Qué Puedo Cursar", "API:", "Base de datos", "Dominio público", "El equipo"):
         assert parte in texto
     assert TOKEN not in texto
 
@@ -210,6 +211,7 @@ def test_iniciar_bot_no_hace_nada_sin_configurar(monkeypatch):
 
 def test_iniciar_bot_arranca_un_hilo_daemon_si_esta_configurado(configurado, monkeypatch):
     monkeypatch.setattr(telegram_bot, "_loop", lambda detener: None)  # sin red
+    monkeypatch.setattr(telegram_bot, "_vigilar_energia", lambda detener: None)
     hilo = telegram_bot.iniciar_bot()
     assert hilo is not None and hilo.daemon
     hilo.join(timeout=2)
