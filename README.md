@@ -59,9 +59,16 @@ Un bot personal que corre **dentro del mismo proceso de uvicorn** (un hilo con l
 |---|---|
 | `/hoy`, `/manana` | Agenda del día: eventos institucionales + los personales **de tu cuenta** (nunca los de otro usuario) |
 | `/cursar` | Materias que podés cursar ahora (mismas reglas de correlatividad que la app) |
-| `/estado` | Uptime de la API, estado del túnel, RAM y disco libres, commit y último deploy |
+| `/pc` | El equipo: batería (si está enchufado/cargando), temperatura de la CPU, carga, RAM, discos, señal Wi-Fi, consumo y uptime |
+| `/consumo` | Cuánta energía gasta ahora (ver nota abajo) |
+| `/servicios` | Qué Puedo Cursar: API, base de datos, dominio público (prueba de punta a punta), recordatorio de las 21:00, mails y conexiones en vivo |
+| `/estado` | `/servicios` y `/pc` juntos |
 
 Además manda por Telegram: el recordatorio de las 21:00 (el mismo contenido que el mail, solo para tu cuenta) y los avisos del servidor: arranque, deploy OK, y caída/recuperación de uvicorn o del túnel (`deploy/tablet_run.sh`; si uvicorn muere ahora se reinicia solo y avisa en la 1.ª y la 5.ª caída seguida).
+
+**Consumo:** el consumo *total* del equipo solo se puede medir cuando la batería se está descargando (la batería informa la corriente y el voltaje; enchufado no informa nada útil). El consumo del procesador sale del contador RAPL, que en Linux es solo de root: para que el bot lo lea hay que correr una vez `deploy/servidor/permitir-lectura-rapl.sh` con sudo (opcional; es un permiso de lectura sobre un contador de energía, con el pequeño costo de seguridad que se explica en el script).
+
+**Alertas automáticas (equipos con batería):** avisa por Telegram cuando se corta la luz, cuando vuelve y cuando la batería baja del 20 % sin corriente. Un cambio solo se confirma si aparece en dos lecturas seguidas (cada 30 s) para evitar falsas alarmas.
 
 **Seguridad:** el bot solo le hace caso al chat de `TELEGRAM_CHAT_ID`; cualquier otro mensaje se ignora sin respuesta. El token es una clave: va únicamente en el `.env` de la tablet (nunca en git ni en el chat).
 
