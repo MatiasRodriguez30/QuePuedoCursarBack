@@ -133,11 +133,15 @@ def memoria() -> Optional[Tuple[int, int]]:
     valores = {}
     for linea in texto.splitlines():
         partes = linea.split()
-        if len(partes) >= 2 and partes[0] in ("MemTotal:", "MemAvailable:"):
+        if len(partes) >= 2 and partes[0] in ("MemTotal:", "MemAvailable:", "MemFree:", "Buffers:", "Cached:"):
             valores[partes[0]] = int(partes[1]) // 1024
-    if "MemTotal:" in valores and "MemAvailable:" in valores:
+    if "MemTotal:" not in valores:
+        return None
+    if "MemAvailable:" in valores:
         return valores["MemTotal:"], valores["MemAvailable:"]
-    return None
+    # Los kernels viejos (la tablet con Android 6) no traen MemAvailable: se
+    # aproxima con la memoria libre más lo que se puede reclamar (buffers y caché).
+    return valores["MemTotal:"], sum(valores.get(k, 0) for k in ("MemFree:", "Buffers:", "Cached:"))
 
 
 def carga() -> Optional[Tuple[float, float, float]]:
@@ -262,16 +266,20 @@ def describir_consumo(esperar: float = 1.0) -> List[str]:
 
 def discos(rutas: List[Tuple[str, str]]) -> List[Tuple[str, float, float]]:
     """[(nombre, libre_gb, total_gb)] para cada (nombre, ruta) que exista.
-    Si dos rutas están en el mismo disco se muestra una sola."""
+    Si dos rutas están en el mismo disco se muestra una sola. Un bind mount de
+    Docker del mismo disco tiene otro st_dev, pero reporta el mismo tamaño y
+    casi el mismo espacio libre: también se considera el mismo disco."""
     vistos = set()
+    medidas = []
     salida = []
     for nombre, ruta in rutas:
         try:
             dev = os.stat(ruta).st_dev
-            if dev in vistos:
+            uso = shutil.disk_usage(ruta)
+            if dev in vistos or any(uso.total == t and abs(uso.free - l) < 50 * 1024 ** 2 for t, l in medidas):
                 continue
             vistos.add(dev)
-            uso = shutil.disk_usage(ruta)
+            medidas.append((uso.total, uso.free))
             salida.append((nombre, uso.free / 1024 ** 3, uso.total / 1024 ** 3))
         except Exception:
             continue

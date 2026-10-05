@@ -62,7 +62,7 @@ def enviar_mensaje(texto: str, chat_id: Optional[str] = None) -> bool:
         r = _pedir("sendMessage", {"chat_id": destino, "text": texto[:LIMITE_MENSAJE]}, timeout=10)
         return bool(r.get("ok"))
     except Exception as e:
-        logger.warning("Telegram: no se pudo enviar el mensaje (%s)", e.__class__.__name__)
+        logger.warning("Telegram: no se pudo enviar el mensaje (%s: %s)", e.__class__.__name__, repr(getattr(e, "reason", ""))[:80])
         return False
 
 
