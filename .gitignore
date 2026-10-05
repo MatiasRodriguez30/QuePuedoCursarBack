@@ -16,3 +16,7 @@ cloudflared_config.yml
 *.db-shm
 *.db-wal
 *.db.bak-*
+
+# Servidor casero (Docker): datos y credenciales del túnel, nunca a git
+/data/
+/cloudflared/
