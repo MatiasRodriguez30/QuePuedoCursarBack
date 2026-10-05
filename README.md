@@ -94,7 +94,16 @@ docker compose logs -f api      # logs
 docker compose restart api      # reiniciar solo la API
 ```
 
-Cuidado: no correr la tablet y el servidor a la vez con el mismo túnel y bases distintas (Cloudflare repartiría los pedidos entre las dos).
+**Auto-deploy y vigilancia:** `deploy/servidor/vigilar.sh` (lo corre `cron` cada minuto, sin sudo) toma los commits nuevos de `origin/main`, reconstruye con `docker compose up -d --build` y avisa por Telegram si el deploy salió bien o falló; además revisa que la API esté `healthy` y el túnel corriendo, los levanta de nuevo si no, y avisa una vez al caer y una al volver. Se instala con:
+
+```bash
+git clone https://github.com/MatiasRodriguez30/QuePuedoCursarBack.git ~/proyectos/QuePuedoCursarBack   # o `git init` + `git remote add` + `git reset --hard origin/main` sobre una copia ya existente
+(crontab -l 2>/dev/null; echo '* * * * * ~/proyectos/QuePuedoCursarBack/deploy/servidor/vigilar.sh >> ~/proyectos/vigilar.log 2>&1') | crontab -
+```
+
+Un merge a `main` queda desplegado en ~1 minuto, igual que antes en la tablet (con unos segundos de corte al reiniciar la API).
+
+Cuidado: no correr la tablet y el servidor a la vez con el mismo túnel y bases distintas (Cloudflare repartiría los pedidos entre las dos). La tablet quedó retirada y su autoarranque desactivado.
 
 ## Despliegue en la tablet (Termux) + Cloudflare Tunnel
 
