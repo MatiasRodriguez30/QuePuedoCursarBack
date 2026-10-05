@@ -1,5 +1,13 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # ─────────────────────────────────────────────────────────────────────────
+# RETIRADO (2026-10-05): el backend ya no corre en la tablet. Se mudó al
+# servidor casero (Docker): ver compose.yml y deploy/servidor/vigilar.sh.
+# Este script queda sólo como referencia histórica. NO lo vuelvas a lanzar:
+# levantaría una segunda API con una base vieja y un segundo conector del
+# túnel (Cloudflare repartiría los pedidos entre las dos), además de duplicar
+# el bot de Telegram y el recordatorio de las 21:00.
+# ─────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────
 # Corre el backend en la tablet (Termux) y lo mantiene actualizado solo:
 #   - Expone el puerto 8000 a internet con un Cloudflare Tunnel nombrado
 #     (URL fija, no cambia entre reinicios).
