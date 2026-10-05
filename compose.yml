@@ -14,7 +14,16 @@ services:
     network_mode: host
     env_file: .env            # RESEND_API_KEY, TELEGRAM_*, etc. (no se versiona)
     volumes:
-      - ./data:/data          # acá queda plan_estudios.db y sus backups .bak-*
+      # Acá queda plan_estudios.db y sus backups .bak-*. En el servidor se define
+      # DATOS_DIR=/srv/datos/qpc/data (el disco duro USB; el SSD es la última
+      # opción). create_host_path: false hace que, si el disco no está montado,
+      # el contenedor NO arranque: sin eso Docker crearía la carpeta en el SSD y
+      # la API arrancaría con una base vacía sin avisar.
+      - type: bind
+        source: ${DATOS_DIR:-./data}
+        target: /data
+        bind:
+          create_host_path: false
 
   tunel:
     image: cloudflare/cloudflared:latest

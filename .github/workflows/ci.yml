@@ -61,6 +61,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Validar compose.yml
+        run: touch .env && docker compose config -q
       - name: Construir la imagen
         run: docker build -t qpc-api .
       - name: Arrancarla y comprobar que responde
