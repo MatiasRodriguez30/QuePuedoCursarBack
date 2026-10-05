@@ -78,7 +78,7 @@ Además manda por Telegram: el recordatorio de las 21:00 (el mismo contenido que
 
 Alternativa a la tablet: `compose.yml` levanta la API (Python 3.12) y el túnel de Cloudflare, ambos con `restart: unless-stopped`. Hace falta Docker con el plugin `compose`.
 
-Archivos que **no** se versionan y hay que crear en el servidor: `.env` (igual que en la tablet), `cloudflared/config.yml` (ver `deploy/servidor/cloudflared-config.example.yml`) y `cloudflared/<uuid>.json` (credenciales del túnel). La base queda en `./data/plan_estudios.db` (variable `DB_PATH`).
+Archivos que **no** se versionan y hay que crear en el servidor: `.env` (igual que en la tablet), `cloudflared/config.yml` (ver `deploy/servidor/cloudflared-config.example.yml`) y `cloudflared/<uuid>.json` (credenciales del túnel). La base queda en `$DATOS_DIR/plan_estudios.db` (por defecto `./data`; en el servidor casero `DATOS_DIR` apunta al disco duro USB, y si ese disco no está montado el contenedor no arranca en vez de crear una base vacía en el SSD).
 
 ```bash
 docker compose up -d --build    # levantar o actualizar
