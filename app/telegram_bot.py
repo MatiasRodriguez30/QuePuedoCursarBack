@@ -175,6 +175,9 @@ def _equipo() -> str:
     t = sistema_info.temperatura_cpu()
     if t is not None:
         lineas.append(f"• Temperatura CPU: {t:.0f} °C" + (" (caliente)" if t >= 85 else ""))
+    rpm = sistema_info.ventilador_rpm()
+    if rpm is not None:
+        lineas.append(f"• Ventilador: {rpm} rpm" + (" (parado)" if rpm == 0 else ""))
     c = sistema_info.carga()
     if c:
         lineas.append(f"• Carga: {c[0]:.2f} / {c[1]:.2f} / {c[2]:.2f} (1, 5 y 15 min; {os.cpu_count() or 1} núcleos)")
