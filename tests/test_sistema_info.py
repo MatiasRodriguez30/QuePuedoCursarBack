@@ -329,3 +329,37 @@ def test_pc_muestra_las_rpm_del_ventilador(bot_listo, equipo):
     _escribir(sys_ / "class" / "hwmon" / "hwmon5" / "fan1_input", "2602\n")
     assert "Ventilador: 2602 rpm" in telegram_bot.responder("/pc", CHAT)
 
+
+# ─── Alerta de temperatura sostenida ──────────────────────────────────────────
+
+def _lecturas(estado, temps):
+    avisos = []
+    for t in temps:
+        avisos.extend(telegram_bot._procesar_temperatura(estado, t))
+    return avisos
+
+
+def test_un_pico_corto_de_temperatura_no_avisa():
+    # 4 lecturas calientes y baja: es el pico normal de arranque de una carga.
+    assert _lecturas({}, [95, 100, 100, 99, 70, 60]) == []
+
+
+def test_temperatura_sostenida_avisa_una_sola_vez_y_avisa_al_normalizarse():
+    estado = {}
+    avisos = _lecturas(estado, [92, 95, 96, 97, 98])          # 5 seguidas >= 90
+    assert len(avisos) == 1 and "CPU caliente: 98 °C" in avisos[0]
+    assert _lecturas(estado, [99, 100, 95]) == []              # sigue caliente: no repite
+    assert _lecturas(estado, [85]) == []                       # baja pero todavía no es "normal" (< 80)
+    vuelta = _lecturas(estado, [75])
+    assert len(vuelta) == 1 and "volvió a la normalidad (75 °C)" in vuelta[0]
+    assert _lecturas(estado, [70, 71]) == []                   # ya normal: silencio
+
+
+def test_un_nuevo_episodio_vuelve_a_avisar():
+    estado = {}
+    _lecturas(estado, [95] * 5 + [70])
+    assert len(_lecturas(estado, [96] * 5)) == 1
+
+
+def test_sin_sensor_de_temperatura_no_hace_nada():
+    assert telegram_bot._procesar_temperatura({}, None) == []

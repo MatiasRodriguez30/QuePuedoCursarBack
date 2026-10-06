@@ -70,6 +70,8 @@ Además manda por Telegram: el recordatorio de las 21:00 (el mismo contenido que
 
 **Alertas automáticas (equipos con batería):** avisa por Telegram cuando se corta la luz, cuando vuelve y cuando la batería baja del 20 % sin corriente. Un cambio solo se confirma si aparece en dos lecturas seguidas (cada 30 s) para evitar falsas alarmas.
 
+**Alerta de temperatura:** avisa si la CPU se mantiene en 90 °C o más durante más de 2 minutos (un pico corto es normal: al empezar una carga el firmware deja subir la CPU unos 27 s antes de aplicar el límite de potencia), y avisa una vez más cuando baja de 80 °C. Una sola alerta por episodio.
+
 **Seguridad:** el bot solo le hace caso al chat de `TELEGRAM_CHAT_ID`; cualquier otro mensaje se ignora sin respuesta. El token es una clave: va únicamente en el `.env` de la tablet (nunca en git ni en el chat).
 
 **Configuración (una vez):**
