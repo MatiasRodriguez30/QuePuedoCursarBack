@@ -125,6 +125,26 @@ def temperatura_cpu() -> Optional[float]:
     return max(g for _, g in candidatas)
 
 
+def ventilador_rpm() -> Optional[int]:
+    """RPM del ventilador (el mayor que informe algún sensor hwmon) o None si el
+    equipo no expone ninguno. 0 = parado (normal en reposo en algunos equipos)."""
+    try:
+        carpetas = sorted((_sys() / "class" / "hwmon").iterdir())
+    except Exception:
+        return None
+    valores = []
+    for d in carpetas:
+        try:
+            entradas = sorted(d.glob("fan*_input"))
+        except Exception:
+            continue
+        for f in entradas:
+            v = _numero(f)
+            if v is not None:
+                valores.append(v)
+    return max(valores) if valores else None
+
+
 def memoria() -> Optional[Tuple[int, int]]:
     """(total_mb, disponible_mb)."""
     texto = _leer(_proc() / "meminfo")

@@ -304,3 +304,28 @@ def test_discos_distintos_se_muestran_los_dos(monkeypatch):
     dev = iter(range(100, 200))
     monkeypatch.setattr(sistema_info.os, "stat", lambda r: type("S", (), {"st_dev": next(dev)})())
     assert [n for n, _, _ in sistema_info.discos([("Sistema", "/"), ("Datos", "/data")])] == ["Sistema", "Datos"]
+
+
+# ─── Ventilador ───────────────────────────────────────────────────────────────
+
+def test_ventilador_toma_el_mayor_de_los_sensores(equipo):
+    sys_, _ = equipo
+    _escribir(sys_ / "class" / "hwmon" / "hwmon4" / "fan1_input", "1200\n")
+    _escribir(sys_ / "class" / "hwmon" / "hwmon5" / "fan1_input", "2602\n")
+    _escribir(sys_ / "class" / "hwmon" / "hwmon6" / "temp1_input", "50000\n")  # sin ventilador: se ignora
+    assert sistema_info.ventilador_rpm() == 2602
+
+
+def test_ventilador_parado_es_cero_y_sin_sensor_es_none(equipo, tmp_path, monkeypatch):
+    sys_, _ = equipo
+    _escribir(sys_ / "class" / "hwmon" / "hwmon0" / "fan1_input", "0\n")
+    assert sistema_info.ventilador_rpm() == 0
+    monkeypatch.setenv("HOST_SYS", str(tmp_path / "vacio"))
+    assert sistema_info.ventilador_rpm() is None
+
+
+def test_pc_muestra_las_rpm_del_ventilador(bot_listo, equipo):
+    sys_, _ = equipo
+    _escribir(sys_ / "class" / "hwmon" / "hwmon5" / "fan1_input", "2602\n")
+    assert "Ventilador: 2602 rpm" in telegram_bot.responder("/pc", CHAT)
+
