@@ -321,6 +321,44 @@ def _vigilar_energia(detener: threading.Event, intervalo: int = 30) -> None:
             return
 
 
+def _procesar_temperatura(estado: dict, temp: Optional[float], umbral: int = 90, normal: int = 80, lecturas: int = 5) -> List[str]:
+    """Una lectura de la temperatura de la CPU -> avisos a mandar. Sólo avisa si
+    se mantiene >= `umbral` durante `lecturas` lecturas seguidas (con una cada
+    30 s son ~2 minutos): un pico corto es normal, por ejemplo al empezar una
+    carga el firmware deja subir la CPU unos 27 s antes de aplicar el límite de
+    potencia. Avisa una vez por episodio, y una vez más cuando baja de `normal`."""
+    if temp is None:
+        return []
+    avisos: List[str] = []
+    if temp >= umbral:
+        estado["calientes"] = estado.get("calientes", 0) + 1
+        if estado["calientes"] >= lecturas and not estado.get("avisado"):
+            avisos.append(f"CPU caliente: {temp:.0f} °C sostenidos por más de 2 minutos. Revisá la ventilación y qué está usando el equipo (/pc).")
+            estado["avisado"] = True
+    else:
+        estado["calientes"] = 0
+        if estado.get("avisado") and temp < normal:
+            avisos.append(f"La temperatura de la CPU volvió a la normalidad ({temp:.0f} °C).")
+            estado["avisado"] = False
+    return avisos
+
+
+def _vigilar_temperatura(detener: threading.Event, intervalo: int = 30) -> None:
+    """Avisa por Telegram si la CPU se queda caliente de forma sostenida. Si el
+    equipo no expone la temperatura no hace nada."""
+    if sistema_info.temperatura_cpu() is None:
+        return
+    estado: dict = {}
+    while True:
+        try:
+            for aviso in _procesar_temperatura(estado, sistema_info.temperatura_cpu()):
+                telegram_api.enviar_mensaje(aviso)
+        except Exception:
+            logger.exception("Telegram: falló la vigilancia de temperatura")
+        if detener.wait(intervalo):
+            return
+
+
 def iniciar_bot() -> Optional[threading.Thread]:
     """Arranca el hilo del bot si está configurado. Devuelve el hilo, o None."""
     if not telegram_api.esta_configurado():
@@ -330,5 +368,6 @@ def iniciar_bot() -> Optional[threading.Thread]:
     hilo = threading.Thread(target=_loop, args=(detener,), daemon=True, name="telegram-bot")
     hilo.start()
     threading.Thread(target=_vigilar_energia, args=(detener,), daemon=True, name="telegram-energia").start()
+    threading.Thread(target=_vigilar_temperatura, args=(detener,), daemon=True, name="telegram-temperatura").start()
     logger.info("Bot de Telegram iniciado.")
     return hilo

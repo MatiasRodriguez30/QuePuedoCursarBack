@@ -212,6 +212,7 @@ def test_iniciar_bot_no_hace_nada_sin_configurar(monkeypatch):
 def test_iniciar_bot_arranca_un_hilo_daemon_si_esta_configurado(configurado, monkeypatch):
     monkeypatch.setattr(telegram_bot, "_loop", lambda detener: None)  # sin red
     monkeypatch.setattr(telegram_bot, "_vigilar_energia", lambda detener: None)
+    monkeypatch.setattr(telegram_bot, "_vigilar_temperatura", lambda detener: None)
     hilo = telegram_bot.iniciar_bot()
     assert hilo is not None and hilo.daemon
     hilo.join(timeout=2)
