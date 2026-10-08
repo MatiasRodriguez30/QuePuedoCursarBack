@@ -37,3 +37,8 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 TELEGRAM_USUARIO_EMAIL = os.environ.get("TELEGRAM_USUARIO_EMAIL", "")
 # Dominio público de la API: el bot lo consulta en /servicios (prueba de punta a punta).
 API_PUBLICA_URL = os.environ.get("API_PUBLICA_URL", "https://quepuedocursar.takana.online")
+# Panel de administración del servidor de Minecraft (corre en el mismo servidor, SOLO en la red de casa / Tailscale): el bot da el
+# link (/panelservidormc) y le pide el código de acceso por Telegram (/token). El usuario es el del panel, no el de esta app.
+PANEL_MC_URL = os.environ.get("PANEL_MC_URL", "https://192.168.1.44:8443")
+PANEL_MC_URL_TAILSCALE = os.environ.get("PANEL_MC_URL_TAILSCALE", "https://100.107.211.46:8443")
+PANEL_MC_USUARIO = os.environ.get("PANEL_MC_USUARIO", "Leciloft")

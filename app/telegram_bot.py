@@ -12,13 +12,17 @@ Seguridad: sólo se le hace caso al chat de TELEGRAM_CHAT_ID. Cualquier otro
 mensaje se ignora sin responder (para que un desconocido no sepa ni que el
 bot está vivo).
 """
+import ipaddress
+import json
 import logging
 import os
+import ssl
 import subprocess
 import threading
 import time
 import unicodedata
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import timedelta
 from pathlib import Path
@@ -46,7 +50,9 @@ AYUDA = (
     "/cursar — materias que podés cursar ahora\n"
     "/pc — el equipo: batería, temperatura, RAM, discos, Wi-Fi\n"
     "/consumo — cuánta energía gasta el equipo ahora\n"
-    "/servicios — Qué Puedo Cursar: API, base, dominio, recordatorio\n"
+    "/servicios — Qué Puedo Cursar: API, base, dominio, recordatorio y el panel del servidor de Minecraft\n"
+    "/panelservidormc — panel de administración del servidor de Minecraft (link)\n"
+    "/token — código para entrar al panel del servidor de Minecraft\n"
     "/estado — todo lo anterior junto\n"
     "/ayuda — esta lista"
 )
@@ -159,6 +165,7 @@ def _servicios(db) -> str:
     lineas.append(f"• Recordatorio de las 21:00: programado, próximo en {sistema_info.duracion(_segundos_hasta_proximo_envio())}")
     lineas.append("• Mails (Resend): " + ("configurado" if config.RESEND_API_KEY else "SIN configurar"))
     lineas.append(f"• Conexiones en vivo: {len(manager.active_connections)} dispositivos, {len(manager.usuarios_en_linea())} usuarios")
+    lineas.append(f"• Panel del servidor de Minecraft: {_probar_panel_mc()} — /panelservidormc")
     commit = _commit()
     if commit != "n/d":
         lineas.append(f"• Versión: {commit}")
@@ -166,6 +173,72 @@ def _servicios(db) -> str:
     if deploy != "n/d":
         lineas.append(f"• Último deploy: {deploy}")
     return "\n".join(lineas)
+
+
+# ─── Panel del servidor de Minecraft ──────────────────────────────────────────
+
+def _llamar_panel(ruta: str, cuerpo: Optional[dict] = None, timeout: int = 6):
+    """Habla con el panel del servidor de Minecraft (red de casa). Devuelve (código HTTP, JSON).
+
+    El panel tiene un certificado autofirmado, así que no se valida; por eso solo se le habla a una IP privada
+    (red de casa o Tailscale) y solo se le manda un nombre de usuario (el código llega por Telegram, no por acá).
+    Levanta OSError/ValueError si no se puede.
+    """
+    partes = urllib.parse.urlsplit(config.PANEL_MC_URL)
+    if not partes.hostname or not ipaddress.ip_address(partes.hostname).is_private:
+        raise ValueError("PANEL_MC_URL tiene que ser una IP privada (red de casa)")
+    contexto = ssl.create_default_context()
+    contexto.check_hostname = False
+    contexto.verify_mode = ssl.CERT_NONE
+    datos = json.dumps(cuerpo).encode("utf-8") if cuerpo is not None else None
+    req = urllib.request.Request(
+        config.PANEL_MC_URL.rstrip("/") + ruta, data=datos, method="POST" if datos is not None else "GET",
+        headers={"Content-Type": "application/json", "X-Panel": "1", "User-Agent": "QuePuedoCursar-bot/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=contexto) as resp:
+            return resp.status, json.loads(resp.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read() or b"{}")
+        except ValueError:
+            return e.code, {}
+
+
+def _probar_panel_mc() -> str:
+    try:
+        codigo, _ = _llamar_panel("/api/session", timeout=4)
+        return "disponible" if codigo == 200 else f"responde con HTTP {codigo}"
+    except Exception as e:
+        return f"NO responde ({e.__class__.__name__})"
+
+
+def _panel_mc() -> str:
+    lineas = ["Panel de administración del servidor de Minecraft", "Link: " + config.PANEL_MC_URL]
+    if config.PANEL_MC_URL_TAILSCALE:
+        lineas.append("Por Tailscale: " + config.PANEL_MC_URL_TAILSCALE)
+    lineas += [
+        f"Usuario: {config.PANEL_MC_USUARIO}",
+        "Solo se abre desde la red de casa o por Tailscale (no está en internet). El navegador avisa por el certificado: aceptalo una vez.",
+        "/token — te mando el código para entrar",
+    ]
+    return "\n".join(lineas)
+
+
+def _token_panel() -> str:
+    try:
+        codigo, datos = _llamar_panel("/api/telegram/request", {"usuario": config.PANEL_MC_USUARIO})
+    except Exception as e:
+        logger.warning("Telegram: no se pudo pedir el código del panel (%s)", e.__class__.__name__)
+        return "No pude hablar con el panel del servidor de Minecraft (¿está apagado o fuera de la red de casa?)."
+    if codigo == 200:
+        return (f"Pedí el código de acceso para {config.PANEL_MC_USUARIO}: te llega en otro mensaje y vence en 5 minutos. "
+                "Escribilo en la pantalla de ingreso del panel (/panelservidormc tiene el link).")
+    if codigo == 429:
+        return "Pediste demasiados códigos seguidos. Esperá unos minutos y probá de nuevo."
+    if codigo == 409:
+        return "El panel todavía no tiene el acceso por Telegram configurado (scripts/panel-telegram.sh en el servidor)."
+    return f"El panel respondió con un error (HTTP {codigo})."
 
 
 def _equipo() -> str:
@@ -211,8 +284,12 @@ def responder(texto: str, chat_id) -> Optional[str]:
     comando = _normalizar_comando(texto)
     if comando in ("start", "ayuda", "help"):
         return AYUDA
-    if comando not in ("hoy", "manana", "cursar", "estado", "pc", "servicios", "consumo"):
+    if comando not in ("hoy", "manana", "cursar", "estado", "pc", "servicios", "consumo", "panelservidormc", "token"):
         return "No entendí. " + AYUDA
+    if comando == "panelservidormc":
+        return _panel_mc()
+    if comando == "token":
+        return _token_panel()
 
     db = SessionLocal()
     try:

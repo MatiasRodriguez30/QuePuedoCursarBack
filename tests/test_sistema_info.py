@@ -149,6 +149,7 @@ def bot_listo(db_session, equipo, monkeypatch):
     monkeypatch.setattr(telegram_bot, "SessionLocal", fabrica)
     monkeypatch.setattr(telegram_bot, "_ahora_argentina", lambda: datetime(2026, 10, 6, 10, 0))
     monkeypatch.setattr(telegram_bot, "_probar_publico", lambda: "OK (HTTP 200, 120 ms)")
+    monkeypatch.setattr(telegram_bot, "_probar_panel_mc", lambda: "disponible")  # sin red
     db_session.add(models.Usuario(email="dueno@mail.com", password_hash="x", rol=models.RolEnum.USER))
     db_session.commit()
     return db_session
