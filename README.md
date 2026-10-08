@@ -61,7 +61,9 @@ Un bot personal que corre **dentro del mismo proceso de uvicorn** (un hilo con l
 | `/cursar` | Materias que podés cursar ahora (mismas reglas de correlatividad que la app) |
 | `/pc` | El equipo: batería (si está enchufado/cargando), temperatura de la CPU, carga, RAM, discos, señal Wi-Fi, consumo y uptime |
 | `/consumo` | Cuánta energía gasta ahora (ver nota abajo) |
-| `/servicios` | Qué Puedo Cursar: API, base de datos, dominio público (prueba de punta a punta), recordatorio de las 21:00, mails y conexiones en vivo |
+| `/servicios` | Qué Puedo Cursar: API, base de datos, dominio público (prueba de punta a punta), recordatorio de las 21:00, mails, conexiones en vivo y el panel del servidor de Minecraft |
+| `/panelservidormc` | Link del panel de administración del servidor de Minecraft (red de casa y Tailscale, no está en internet) y el usuario con el que se entra |
+| `/token` | Le pide al panel un código de acceso de un solo uso (vence a los 5 minutos); llega por este mismo bot en otro mensaje y se escribe en la pantalla de ingreso del panel |
 | `/estado` | `/servicios` y `/pc` juntos |
 
 Además manda por Telegram: el recordatorio de las 21:00 (el mismo contenido que el mail, solo para tu cuenta) y los avisos del servidor: arranque, deploy OK, y caída/recuperación de uvicorn o del túnel (`deploy/tablet_run.sh`; si uvicorn muere ahora se reinicia solo y avisa en la 1.ª y la 5.ª caída seguida).
@@ -71,6 +73,8 @@ Además manda por Telegram: el recordatorio de las 21:00 (el mismo contenido que
 **Alertas automáticas (equipos con batería):** avisa por Telegram cuando se corta la luz, cuando vuelve y cuando la batería baja del 20 % sin corriente. Un cambio solo se confirma si aparece en dos lecturas seguidas (cada 30 s) para evitar falsas alarmas.
 
 **Alerta de temperatura:** avisa si la CPU se mantiene en 90 °C o más durante más de 2 minutos (un pico corto es normal: al empezar una carga el firmware deja subir la CPU unos 27 s antes de aplicar el límite de potencia), y avisa una vez más cuando baja de 80 °C. Una sola alerta por episodio.
+
+**Panel del servidor de Minecraft:** `/panelservidormc` y `/token` hablan con el panel que corre en el mismo servidor (`PANEL_MC_URL`, por defecto `https://192.168.1.44:8443`; `PANEL_MC_URL_TAILSCALE` y `PANEL_MC_USUARIO` son opcionales). `/token` hace `POST /api/telegram/request` al panel con el nombre de usuario; el panel manda el código por Telegram (no pasa por acá). El panel usa un certificado autofirmado, así que no se valida, y por eso el bot solo le habla a una IP privada. Código y pruebas del panel en el repo del servidor de Minecraft.
 
 **Seguridad:** el bot solo le hace caso al chat de `TELEGRAM_CHAT_ID`; cualquier otro mensaje se ignora sin respuesta. El token es una clave: va únicamente en el `.env` de la tablet (nunca en git ni en el chat).
 

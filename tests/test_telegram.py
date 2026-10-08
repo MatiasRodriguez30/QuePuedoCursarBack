@@ -7,6 +7,7 @@ Nada de esto toca la red: urlopen y el envío se reemplazan por falsos.
 import io
 import json
 import logging
+import ssl
 import urllib.error
 from datetime import date, datetime
 
@@ -182,6 +183,7 @@ def test_cursar_sin_usuario_configurado_explica_que_falta(configurado, bot_db, m
 def test_estado_incluye_las_secciones_y_no_muestra_secretos(configurado, bot_db, monkeypatch):
     _usuario(bot_db, "dueno@mail.com")
     monkeypatch.setattr(telegram_bot, "_probar_publico", lambda: "OK (HTTP 200, 90 ms)")  # sin red
+    monkeypatch.setattr(telegram_bot, "_probar_panel_mc", lambda: "disponible")  # sin red
     texto = telegram_bot.responder("/estado", CHAT)
     for parte in ("Servicios de Qué Puedo Cursar", "API:", "Base de datos", "Dominio público", "El equipo"):
         assert parte in texto
@@ -241,3 +243,111 @@ def test_recordatorio_por_telegram_solo_al_dueno_y_solo_con_lo_suyo(configurado,
     assert len(enviados) == 1  # una sola vez: al dueño, no a "otro"
     assert "Mesa de examen" in enviados[0] and "Mi oral" in enviados[0]
     assert "Secreto de otro" not in enviados[0]
+
+
+# ─── Panel del servidor de Minecraft: /panelservidormc y /token ───────────────
+
+def test_ayuda_lista_los_comandos_del_panel(configurado, bot_db):
+    ayuda = telegram_bot.responder("/ayuda", CHAT)
+    assert "/panelservidormc" in ayuda and "/token" in ayuda
+
+
+def test_panelservidormc_da_el_link_el_usuario_y_no_muestra_secretos(configurado, bot_db):
+    texto = telegram_bot.responder("/panelservidormc", CHAT)
+    assert config.PANEL_MC_URL in texto
+    assert config.PANEL_MC_USUARIO in texto
+    assert "/token" in texto
+    assert TOKEN not in texto
+
+
+def test_panel_y_token_ignoran_a_chats_ajenos_sin_tocar_el_panel(configurado, bot_db, monkeypatch):
+    llamadas = []
+    monkeypatch.setattr(telegram_bot, "_llamar_panel", lambda *a, **k: llamadas.append(a) or (200, {}))
+    assert telegram_bot.responder("/panelservidormc", "999") is None
+    assert telegram_bot.responder("/token", "999") is None
+    assert llamadas == []
+
+
+def test_token_le_pide_el_codigo_al_panel_para_el_usuario_del_panel(configurado, bot_db, monkeypatch):
+    llamadas = []
+
+    def falso(ruta, cuerpo=None, timeout=6):
+        llamadas.append((ruta, cuerpo))
+        return 200, {"ok": True}
+
+    monkeypatch.setattr(telegram_bot, "_llamar_panel", falso)
+    texto = telegram_bot.responder("/token", CHAT)
+    assert llamadas == [("/api/telegram/request", {"usuario": config.PANEL_MC_USUARIO})]
+    assert "5 minutos" in texto
+
+
+@pytest.mark.parametrize("codigo,fragmento", [(429, "demasiados"), (409, "todavía no tiene"), (500, "HTTP 500")])
+def test_token_explica_los_errores_del_panel(configurado, bot_db, monkeypatch, codigo, fragmento):
+    monkeypatch.setattr(telegram_bot, "_llamar_panel", lambda *a, **k: (codigo, {}))
+    assert fragmento in telegram_bot.responder("/token", CHAT)
+
+
+def test_token_con_el_panel_caido_responde_claro_y_no_filtra_el_error(configurado, bot_db, monkeypatch):
+    def roto(*a, **k):
+        raise OSError("boom 192.168.1.44 detalle interno")
+
+    monkeypatch.setattr(telegram_bot, "_llamar_panel", roto)
+    texto = telegram_bot.responder("/token", CHAT)
+    assert "No pude hablar con el panel" in texto
+    assert "boom" not in texto and "192.168" not in texto
+
+
+def test_llamar_panel_arma_el_pedido_y_no_valida_el_certificado_autofirmado(monkeypatch):
+    capturado = {}
+
+    def falso_urlopen(req, timeout=None, context=None):
+        capturado.update(url=req.full_url, metodo=req.get_method(), cuerpo=req.data,
+                         cabeceras={k.lower(): v for k, v in req.header_items()}, contexto=context)
+        return _RespuestaFalsa({"ok": True})
+
+    monkeypatch.setattr(telegram_bot.urllib.request, "urlopen", falso_urlopen)
+    codigo, datos = telegram_bot._llamar_panel("/api/telegram/request", {"usuario": "Leciloft"})
+    assert (codigo, datos) == (200, {"ok": True})
+    assert capturado["url"] == config.PANEL_MC_URL.rstrip("/") + "/api/telegram/request"
+    assert capturado["metodo"] == "POST"
+    assert json.loads(capturado["cuerpo"]) == {"usuario": "Leciloft"}
+    assert capturado["cabeceras"]["x-panel"] == "1"             # el panel exige esta cabecera en los POST
+    assert capturado["contexto"].verify_mode == ssl.CERT_NONE
+    # un GET (sin cuerpo) no manda datos
+    telegram_bot._llamar_panel("/api/session")
+    assert capturado["metodo"] == "GET" and capturado["cuerpo"] is None
+
+
+def test_llamar_panel_devuelve_el_codigo_de_un_error_http(monkeypatch):
+    def falso_urlopen(req, timeout=None, context=None):
+        raise urllib.error.HTTPError(req.full_url, 429, "x", {}, io.BytesIO(b'{"error": "Demasiados intentos"}'))
+
+    monkeypatch.setattr(telegram_bot.urllib.request, "urlopen", falso_urlopen)
+    assert telegram_bot._llamar_panel("/api/telegram/request", {"usuario": "x"}) == (429, {"error": "Demasiados intentos"})
+
+
+@pytest.mark.parametrize("url", ["https://8.8.8.8:8443", "https://panel.ejemplo.com:8443", ""])
+def test_llamar_panel_se_niega_con_algo_que_no_sea_una_ip_privada(monkeypatch, url):
+    monkeypatch.setattr(config, "PANEL_MC_URL", url)
+    with pytest.raises(ValueError):
+        telegram_bot._llamar_panel("/api/session")
+
+
+def test_servicios_muestra_el_panel_de_minecraft(configurado, bot_db, monkeypatch):
+    _usuario(bot_db, "dueno@mail.com")
+    monkeypatch.setattr(telegram_bot, "_probar_publico", lambda: "OK (HTTP 200, 90 ms)")
+    monkeypatch.setattr(telegram_bot, "_probar_panel_mc", lambda: "disponible")
+    texto = telegram_bot.responder("/servicios", CHAT)
+    assert "Panel del servidor de Minecraft: disponible" in texto
+    assert "/panelservidormc" in texto
+
+
+def test_probar_panel_mc_distingue_disponible_y_caido(monkeypatch):
+    monkeypatch.setattr(telegram_bot, "_llamar_panel", lambda *a, **k: (200, {}))
+    assert telegram_bot._probar_panel_mc() == "disponible"
+
+    def roto(*a, **k):
+        raise OSError("sin ruta")
+
+    monkeypatch.setattr(telegram_bot, "_llamar_panel", roto)
+    assert telegram_bot._probar_panel_mc().startswith("NO responde")
