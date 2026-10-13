@@ -75,9 +75,12 @@ AYUDA = (
 Botones = List[List[Tuple[str, str]]]
 Respuesta = Tuple[str, Optional[Botones]]
 
-# Lo que el bot espera como próximo mensaje de texto, por chat (por ahora sólo
-# el nombre de un alta del POS). En memoria: un reinicio corta el alta y listo.
-_esperando: Dict[str, str] = {}
+# Lo que el bot espera como próximo mensaje de texto, por chat: el nombre de un
+# alta del POS ("pos_alta",), su contraseña ("pos_alta_clave", nombre, rol) o la
+# contraseña nueva de un usuario ("pos_clave", nombre). En memoria: un reinicio
+# corta lo que estaba a medio hacer y listo.
+_esperando: Dict[str, Tuple[str, ...]] = {}
+PASOS_CON_CONTRASENA = ("pos_alta_clave", "pos_clave")
 USUARIO_POS = re.compile(r"[a-z0-9._-]{3,30}")  # la misma regla que valida el POS
 FALTA_TOKEN_POS = "Falta POS_INTERNO_TOKEN en el .env del bot: sin eso no puedo tocar los usuarios del POS."
 ROLES_POS = (
@@ -362,7 +365,7 @@ def _pos_usuarios() -> Respuesta:
     if not usuarios:
         return "El POS no tiene usuarios todavía.", [alta]
     texto = "Usuarios del POS:\n" + "\n".join(f"• {u['username']} ({u['rol']})" for u in usuarios)
-    botones = [[("Nueva contraseña: " + u["username"], "pos:clave:" + u["username"]),
+    botones = [[("Cambiar contraseña: " + u["username"], "pos:clave:" + u["username"]),
                 ("Borrar: " + u["username"], "pos:borrar:" + u["username"])] for u in usuarios]
     return texto, botones + [alta]
 
@@ -370,7 +373,7 @@ def _pos_usuarios() -> Respuesta:
 def _pos_alta_inicio(chat_id) -> Respuesta:
     if not config.POS_INTERNO_TOKEN:
         return FALTA_TOKEN_POS, None
-    _esperando[str(chat_id)] = "pos_alta"
+    _esperando[str(chat_id)] = ("pos_alta",)
     return ("Alta de usuario del POS. Escribí el nombre de usuario: de 3 a 30 letras minúsculas, "
             "números, punto o guion, sin espacios. /cancelar para salir."), None
 
@@ -384,22 +387,56 @@ def _pos_alta_pedir_rol(nombre: str) -> Respuesta:
     return f"¿Qué rol tiene {nombre}?", botones + [[("Cancelar", "cmd:cancelar")]]
 
 
-def _pos_crear(nombre: str, rol: str) -> str:
-    datos, error = _pedir_pos("POST", "/api/interno/usuarios", {"username": nombre, "rol": rol})
+def _pedir_contrasena(chat_id, paso: Tuple[str, ...], nombre: str, generar: str) -> Respuesta:
+    _esperando[str(chat_id)] = paso
+    return (f"Escribí la contraseña para {nombre} (de 8 a 72 caracteres). Borro tu mensaje apenas la leo. "
+            "O tocá «Generar una al azar».",
+            [[("Generar una al azar", generar)], [("Cancelar", "cmd:cancelar")]])
+
+
+def _contrasena_valida(contrasena: str) -> bool:
+    # bcrypt (el POS) sólo usa los primeros 72 bytes.
+    return 8 <= len(contrasena) and len(contrasena.encode("utf-8")) <= 72
+
+
+def _pos_recibir_contrasena(paso: Tuple[str, ...], contrasena: str, chat_id) -> Respuesta:
+    contrasena = contrasena.strip()
+    if not _contrasena_valida(contrasena):
+        _esperando[str(chat_id)] = paso  # se sigue esperando
+        return "Tiene que tener entre 8 y 72 caracteres. Escribila de nuevo (/cancelar para salir).", None
+    if paso[0] == "pos_alta_clave":
+        return _pos_crear(paso[1], paso[2], contrasena), None
+    return _pos_nueva_clave(paso[1], contrasena), None
+
+
+AVISO_GUARDAR = "Para no olvidarla: al entrar en https://pos.takana.online aceptá cuando el navegador ofrezca guardarla."
+
+
+def _pos_crear(nombre: str, rol: str, contrasena: Optional[str] = None) -> str:
+    cuerpo = {"username": nombre, "rol": rol}
+    if contrasena:
+        cuerpo["contrasena"] = contrasena
+    datos, error = _pedir_pos("POST", "/api/interno/usuarios", cuerpo)
     if error:
         return "No se creó: " + error
-    return (f"Usuario creado en el POS\nUsuario: {datos['username']}\nRol: {datos['rol']}\n"
-            f"Contraseña: {datos['contrasena']}\n\n"
-            "Entrá en https://pos.takana.online o en la app. La contraseña no se vuelve a mostrar: "
-            "si se pierde, generá otra desde /posusuarios. Conviene borrar este mensaje después de anotarla.")
+    texto = f"Usuario creado en el POS\nUsuario: {nombre}\nRol: {rol}\n"
+    if datos.get("contrasena"):
+        texto += (f"Contraseña: {datos['contrasena']}\n\nNo se vuelve a mostrar: si se pierde, generá otra desde "
+                  "/posusuarios. Conviene borrar este mensaje después de anotarla.\n")
+    else:
+        texto += "Contraseña: la que escribiste.\n"
+    return texto + "\nEntrá en https://pos.takana.online o en la app. " + AVISO_GUARDAR
 
 
-def _pos_nueva_clave(nombre: str) -> str:
-    datos, error = _pedir_pos("POST", f"/api/interno/usuarios/{urllib.parse.quote(nombre)}/contrasena")
+def _pos_nueva_clave(nombre: str, contrasena: Optional[str] = None) -> str:
+    datos, error = _pedir_pos("POST", f"/api/interno/usuarios/{urllib.parse.quote(nombre)}/contrasena",
+                              {"contrasena": contrasena} if contrasena else None)
     if error:
         return "No se cambió: " + error
-    return (f"Contraseña nueva para {datos['username']}: {datos['contrasena']}\n"
-            "La anterior ya no funciona. Conviene borrar este mensaje después de anotarla.")
+    if datos.get("contrasena"):
+        return (f"Contraseña nueva para {nombre}: {datos['contrasena']}\n"
+                "La anterior ya no funciona. Conviene borrar este mensaje después de anotarla. " + AVISO_GUARDAR)
+    return f"Listo, {nombre} ya tiene la contraseña que escribiste. La anterior ya no funciona."
 
 
 def _pos_borrar(nombre: str) -> str:
@@ -413,14 +450,15 @@ def _boton_pos(accion: str, chat_id) -> Optional[Respuesta]:
     tipo, _, arg = accion.partition(":")
     if tipo == "alta":
         return _pos_alta_inicio(chat_id)
-    if tipo == "rol":
+    if tipo in ("rol", "crear"):
         rol, _, nombre = arg.partition(":")
-        if rol in dict(ROLES_POS) and USUARIO_POS.fullmatch(nombre):
-            return _pos_crear(nombre, rol), None
-        return None
+        if rol not in dict(ROLES_POS) or not USUARIO_POS.fullmatch(nombre):
+            return None
+        if tipo == "rol":
+            return _pedir_contrasena(chat_id, ("pos_alta_clave", nombre, rol), nombre, f"pos:crear:{rol}:{nombre}")
+        return _pos_crear(nombre, rol), None
     if tipo == "clave":
-        return (f"¿Generar una contraseña nueva para {arg}? La actual deja de funcionar.",
-                [[("Sí, generar", "pos:clave!:" + arg), ("Cancelar", "cmd:cancelar")]])
+        return _pedir_contrasena(chat_id, ("pos_clave", arg), arg, "pos:clave!:" + arg)
     if tipo == "clave!":
         return _pos_nueva_clave(arg), None
     if tipo == "borrar":
@@ -485,9 +523,18 @@ def responder_completo(texto: str, chat_id) -> Optional[Respuesta]:
     if not _es_del_dueno(chat_id):
         return None
     esperando = _esperando.pop(str(chat_id), None)
-    if esperando == "pos_alta" and not texto.strip().startswith("/"):
-        return _pos_alta_pedir_rol(texto)
+    if esperando and not texto.strip().startswith("/"):
+        if esperando[0] == "pos_alta":
+            return _pos_alta_pedir_rol(texto)
+        if esperando[0] in PASOS_CON_CONTRASENA:
+            return _pos_recibir_contrasena(esperando, texto, chat_id)
     return _ejecutar(_normalizar_comando(texto), chat_id)
+
+
+def _espera_contrasena(chat_id, texto: str) -> bool:
+    """¿Este mensaje es una contraseña que el bot estaba esperando? (hay que borrarlo del chat)."""
+    paso = _esperando.get(str(chat_id))
+    return bool(paso) and paso[0] in PASOS_CON_CONTRASENA and not texto.strip().startswith("/")
 
 
 def responder_boton(dato: str, chat_id) -> Optional[Respuesta]:
@@ -568,7 +615,12 @@ def _procesar_update(update: dict) -> None:
         return
     if time.time() - mensaje.get("date", 0) > EDAD_MAXIMA_MENSAJE:
         return
+    # Una contraseña escrita se borra del chat antes de contestar.
+    borrar = _es_del_dueno(chat["id"]) and _espera_contrasena(chat["id"], texto)
+    borrado = borrar and telegram_api.borrar_mensaje(chat["id"], mensaje.get("message_id"))
     respuesta = responder_completo(texto, chat["id"])
+    if respuesta and borrar and not borrado:
+        respuesta = (respuesta[0] + "\n\nNo pude borrar tu mensaje con la contraseña: borralo vos.", respuesta[1])
     if respuesta:
         _enviar(chat["id"], respuesta)
 

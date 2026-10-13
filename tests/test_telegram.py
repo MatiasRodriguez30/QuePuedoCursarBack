@@ -431,8 +431,12 @@ def test_alta_pide_nombre_despues_rol_y_crea_con_contrasena_aleatoria(pos):
     assert "pos:rol:vendedor:juan.perez" in _datos(botones)
     assert pedidos == []  # todavía no se creó nada
 
+    texto, botones = telegram_bot.responder_boton("pos:rol:vendedor:juan.perez", CHAT)
+    assert "Escribí la contraseña" in texto and "pos:crear:vendedor:juan.perez" in _datos(botones)
+    assert pedidos == []
+
     respuestas[("POST", "/api/interno/usuarios")] = (200, {"username": "juan.perez", "rol": "vendedor", "contrasena": "Xy9-aleatoria"})
-    texto = telegram_bot.responder_boton("pos:rol:vendedor:juan.perez", CHAT)[0]
+    texto = telegram_bot.responder_boton("pos:crear:vendedor:juan.perez", CHAT)[0]
     assert pedidos == [("POST", "/api/interno/usuarios", {"username": "juan.perez", "rol": "vendedor"})]
     assert "Xy9-aleatoria" in texto and "TOKEN-INTERNO-POS" not in texto
 
@@ -444,6 +448,7 @@ def test_alta_rechaza_nombres_invalidos_sin_tocar_el_pos(pos):
     assert "no sirve" in texto
     assert telegram_bot.responder_boton("pos:rol:root:juan", CHAT) is None
     assert telegram_bot.responder_boton("pos:rol:admin:a b", CHAT) is None
+    assert telegram_bot.responder_boton("pos:crear:root:juan", CHAT) is None
     assert pedidos == []
 
 
@@ -456,7 +461,7 @@ def test_alta_se_corta_con_un_comando(pos):
 def test_alta_muestra_el_error_del_pos(pos):
     _, respuestas = pos
     respuestas[("POST", "/api/interno/usuarios")] = (409, {"detail": "Ese usuario ya existe"})
-    assert "Ese usuario ya existe" in telegram_bot.responder_boton("pos:rol:admin:juan", CHAT)[0]
+    assert "Ese usuario ya existe" in telegram_bot.responder_boton("pos:crear:admin:juan", CHAT)[0]
 
 
 def test_sin_token_del_pos_lo_explica_y_no_llama(pos, monkeypatch):
@@ -467,7 +472,7 @@ def test_sin_token_del_pos_lo_explica_y_no_llama(pos, monkeypatch):
     assert pedidos == []
 
 
-def test_borrar_y_nueva_contrasena_piden_confirmacion(pos):
+def test_borrar_pide_confirmacion_y_cambiar_contrasena_ofrece_generar(pos):
     pedidos, respuestas = pos
     texto, botones = telegram_bot.responder_boton("pos:borrar:juan", CHAT)
     assert "pos:borrar!:juan" in _datos(botones) and pedidos == []
@@ -504,3 +509,56 @@ def test_llamar_pos_manda_el_token_y_solo_a_una_direccion_local(monkeypatch):
     monkeypatch.setattr(config, "POS_API_URL", "https://posapi.takana.online")
     with pytest.raises(ValueError):
         telegram_bot._llamar_pos("GET", "/api/interno/usuarios")
+
+
+def test_alta_con_contrasena_elegida_no_la_repite(pos):
+    pedidos, respuestas = pos
+    telegram_bot.responder_boton("pos:rol:admin:matias", CHAT)
+    respuestas[("POST", "/api/interno/usuarios")] = (200, {"username": "matias", "rol": "admin", "contrasena": None})
+    texto = telegram_bot.responder_completo("  mi-clave-secreta ", CHAT)[0]
+    assert pedidos == [("POST", "/api/interno/usuarios", {"username": "matias", "rol": "admin", "contrasena": "mi-clave-secreta"})]
+    assert "la que escribiste" in texto and "mi-clave-secreta" not in texto
+
+
+def test_contrasena_corta_se_vuelve_a_pedir_sin_tocar_el_pos(pos):
+    pedidos, _ = pos
+    telegram_bot.responder_boton("pos:rol:admin:matias", CHAT)
+    assert "entre 8 y 72" in telegram_bot.responder_completo("corta", CHAT)[0]
+    assert "entre 8 y 72" in telegram_bot.responder_completo("x" * 73, CHAT)[0]
+    assert pedidos == []
+    telegram_bot.responder_completo("ahora-si-larga", CHAT)
+    assert pedidos[0][2]["contrasena"] == "ahora-si-larga"
+
+
+def test_cambiar_contrasena_escribiendola(pos):
+    pedidos, respuestas = pos
+    telegram_bot.responder_boton("pos:clave:juan", CHAT)
+    respuestas[("POST", "/api/interno/usuarios/juan/contrasena")] = (200, {"username": "juan", "contrasena": None})
+    texto = telegram_bot.responder_completo("clave-nueva-99", CHAT)[0]
+    assert pedidos == [("POST", "/api/interno/usuarios/juan/contrasena", {"contrasena": "clave-nueva-99"})]
+    assert "clave-nueva-99" not in texto
+
+
+def test_el_mensaje_con_la_contrasena_se_borra_del_chat(pos, monkeypatch):
+    _, respuestas = pos
+    enviados, borrados = [], []
+    monkeypatch.setattr(telegram_api, "enviar_mensaje", lambda texto, chat_id=None, botones=None: enviados.append(texto) or True)
+    monkeypatch.setattr(telegram_api, "borrar_mensaje", lambda chat_id, mid: borrados.append(mid) or True)
+    ahora = telegram_bot.time.time()
+    telegram_bot.responder_boton("pos:clave:juan", CHAT)
+    respuestas[("POST", "/api/interno/usuarios/juan/contrasena")] = (200, {"username": "juan", "contrasena": None})
+    telegram_bot._procesar_update({"update_id": 1, "message": {"message_id": 77, "text": "clave-nueva-99", "chat": {"id": 555}, "date": ahora}})
+    assert borrados == [77] and "borralo vos" not in enviados[-1]
+
+    # un mensaje común no se borra
+    telegram_bot._procesar_update({"update_id": 2, "message": {"message_id": 78, "text": "/pos", "chat": {"id": 555}, "date": ahora}})
+    assert borrados == [77]
+
+
+def test_si_no_puede_borrar_la_contrasena_avisa(pos, monkeypatch):
+    enviados = []
+    monkeypatch.setattr(telegram_api, "enviar_mensaje", lambda texto, chat_id=None, botones=None: enviados.append(texto) or True)
+    monkeypatch.setattr(telegram_api, "borrar_mensaje", lambda chat_id, mid: False)
+    telegram_bot.responder_boton("pos:clave:juan", CHAT)
+    telegram_bot._procesar_update({"update_id": 1, "message": {"message_id": 5, "text": "clave-nueva-99", "chat": {"id": 555}, "date": telegram_bot.time.time()}})
+    assert "borralo vos" in enviados[-1]

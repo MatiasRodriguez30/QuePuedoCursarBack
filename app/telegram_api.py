@@ -74,6 +74,19 @@ def enviar_mensaje(texto: str, chat_id: Optional[str] = None, botones: Optional[
         return False
 
 
+def borrar_mensaje(chat_id, message_id) -> bool:
+    """Borra un mensaje del chat (en un chat privado el bot puede borrar los
+    del usuario, hasta 48 h después). Devuelve True si se borró; nunca levanta
+    excepciones."""
+    if not message_id:
+        return False
+    try:
+        return bool(_pedir("deleteMessage", {"chat_id": chat_id, "message_id": message_id}, timeout=10).get("ok"))
+    except Exception as e:
+        logger.warning("Telegram: no se pudo borrar un mensaje (%s)", e.__class__.__name__)
+        return False
+
+
 def responder_boton(callback_id: str) -> None:
     """Avisa a Telegram que se atendió el toque de un botón (si no, el botón
     queda 'cargando' en el celular). Nunca levanta excepciones."""
