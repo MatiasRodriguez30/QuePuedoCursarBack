@@ -10,7 +10,7 @@ import json
 import logging
 import urllib.error
 import urllib.request
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from app import config
 
@@ -51,24 +51,41 @@ def _pedir(metodo: str, datos: dict, timeout: float) -> dict:
         raise
 
 
-def enviar_mensaje(texto: str, chat_id: Optional[str] = None) -> bool:
+def enviar_mensaje(texto: str, chat_id: Optional[str] = None, botones: Optional[List[List[Tuple[str, str]]]] = None) -> bool:
     """Manda un mensaje de texto plano. Devuelve True si Telegram lo aceptó.
     Nunca levanta excepciones: un aviso que falla no debe romper a quien lo
-    llama (el deploy, el recordatorio de las 21:00, etc.)."""
+    llama (el deploy, el recordatorio de las 21:00, etc.).
+
+    `botones`: filas de (texto, dato) que se muestran como botones debajo del
+    mensaje; al tocar uno llega un callback_query con ese dato (máx. 64 bytes)."""
     destino = chat_id or config.TELEGRAM_CHAT_ID
     if not config.TELEGRAM_BOT_TOKEN or not destino:
         return False
+    datos = {"chat_id": destino, "text": texto[:LIMITE_MENSAJE]}
+    if botones:
+        datos["reply_markup"] = {"inline_keyboard": [
+            [{"text": t, "callback_data": d} for t, d in fila] for fila in botones
+        ]}
     try:
-        r = _pedir("sendMessage", {"chat_id": destino, "text": texto[:LIMITE_MENSAJE]}, timeout=10)
+        r = _pedir("sendMessage", datos, timeout=10)
         return bool(r.get("ok"))
     except Exception as e:
         logger.warning("Telegram: no se pudo enviar el mensaje (%s: %s)", e.__class__.__name__, repr(getattr(e, "reason", ""))[:80])
         return False
 
 
+def responder_boton(callback_id: str) -> None:
+    """Avisa a Telegram que se atendió el toque de un botón (si no, el botón
+    queda 'cargando' en el celular). Nunca levanta excepciones."""
+    try:
+        _pedir("answerCallbackQuery", {"callback_query_id": callback_id}, timeout=10)
+    except Exception as e:
+        logger.warning("Telegram: no se pudo responder el botón (%s)", e.__class__.__name__)
+
+
 def obtener_updates(offset: Optional[int], timeout: int = 30) -> List[dict]:
     """getUpdates con long polling. `offset` = id del último update + 1."""
-    datos = {"timeout": timeout, "allowed_updates": ["message"]}
+    datos = {"timeout": timeout, "allowed_updates": ["message", "callback_query"]}
     if offset is not None:
         datos["offset"] = offset
     r = _pedir("getUpdates", datos, timeout=timeout + 10)

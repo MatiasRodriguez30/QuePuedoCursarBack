@@ -165,7 +165,7 @@ def test_pc_informa_bateria_temperatura_ram_y_wifi(bot_listo):
 
 
 def test_servicios_informa_api_base_dominio_y_recordatorio(bot_listo):
-    texto = telegram_bot.responder("/servicios", CHAT)
+    texto = telegram_bot.responder("/qpcestado", CHAT)
     assert "Servicios de Qué Puedo Cursar" in texto
     assert "API: activa hace" in texto
     assert "Base de datos: OK (1 usuarios" in texto
@@ -176,7 +176,7 @@ def test_servicios_informa_api_base_dominio_y_recordatorio(bot_listo):
 
 def test_servicios_avisa_si_el_dominio_publico_no_responde(bot_listo, monkeypatch):
     monkeypatch.setattr(telegram_bot, "_probar_publico", lambda: "ERROR HTTP 530 (530 = túnel caído)")
-    assert "ERROR HTTP 530" in telegram_bot.responder("/servicios", CHAT)
+    assert "ERROR HTTP 530" in telegram_bot.responder("/qpcestado", CHAT)
 
 
 def test_estado_junta_servicios_y_equipo_sin_secretos(bot_listo):
@@ -187,7 +187,7 @@ def test_estado_junta_servicios_y_equipo_sin_secretos(bot_listo):
 
 def test_en_docker_sin_pid_no_dice_que_el_tunel_esta_caido(bot_listo):
     # Sin .cloudflared.pid (modo Docker) no debe aparecer una falsa alarma de túnel.
-    assert "Túnel (cloudflared): NO responde" not in telegram_bot.responder("/servicios", CHAT)
+    assert "Túnel (cloudflared): NO responde" not in telegram_bot.responder("/qpcestado", CHAT)
 
 
 def test_comandos_nuevos_solo_para_el_chat_del_dueno(bot_listo):
