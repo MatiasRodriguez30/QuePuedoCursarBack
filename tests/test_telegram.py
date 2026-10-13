@@ -333,13 +333,11 @@ def test_llamar_panel_se_niega_con_algo_que_no_sea_una_ip_privada(monkeypatch, u
         telegram_bot._llamar_panel("/api/session")
 
 
-def test_servicios_muestra_el_panel_de_minecraft(configurado, bot_db, monkeypatch):
-    _usuario(bot_db, "dueno@mail.com")
-    monkeypatch.setattr(telegram_bot, "_probar_publico", lambda: "OK (HTTP 200, 90 ms)")
+def test_mc_muestra_el_estado_del_panel_y_sus_comandos(configurado, bot_db, monkeypatch):
     monkeypatch.setattr(telegram_bot, "_probar_panel_mc", lambda: "disponible")
-    texto = telegram_bot.responder("/servicios", CHAT)
-    assert "Panel del servidor de Minecraft: disponible" in texto
-    assert "/panelservidormc" in texto
+    texto, botones = telegram_bot.responder_completo("/mc", CHAT)
+    assert "Panel: disponible" in texto and "/panelservidormc" in texto
+    assert ("Código de acceso", "cmd:token") in botones[0]
 
 
 def test_probar_panel_mc_distingue_disponible_y_caido(monkeypatch):
@@ -351,3 +349,158 @@ def test_probar_panel_mc_distingue_disponible_y_caido(monkeypatch):
 
     monkeypatch.setattr(telegram_bot, "_llamar_panel", roto)
     assert telegram_bot._probar_panel_mc().startswith("NO responde")
+
+
+# ─── /servicios y botones ─────────────────────────────────────────────────────
+
+def _datos(botones):
+    return [d for fila in botones for _, d in fila]
+
+
+def test_servicios_ofrece_los_tres_servicios_con_botones(configurado, bot_db):
+    texto, botones = telegram_bot.responder_completo("/servicios", CHAT)
+    assert _datos(botones) == ["cmd:qpc", "cmd:mc", "cmd:pos"]
+
+
+def test_cada_servicio_tiene_sus_comandos(configurado, bot_db, monkeypatch):
+    monkeypatch.setattr(telegram_bot, "_probar_panel_mc", lambda: "disponible")
+    assert "cmd:cursar" in _datos(telegram_bot.responder_boton("cmd:qpc", CHAT)[1])
+    assert "cmd:token" in _datos(telegram_bot.responder_boton("cmd:mc", CHAT)[1])
+    assert "pos:alta" in _datos(telegram_bot.responder_boton("cmd:pos", CHAT)[1])
+
+
+def test_estado_de_qpc_sigue_disponible_como_qpcestado(configurado, bot_db, monkeypatch):
+    _usuario(bot_db, "dueno@mail.com")
+    monkeypatch.setattr(telegram_bot, "_probar_publico", lambda: "OK (HTTP 200, 90 ms)")
+    texto = telegram_bot.responder_boton("cmd:qpcestado", CHAT)[0]
+    assert "Servicios de Qué Puedo Cursar" in texto
+
+
+def test_botones_de_un_chat_ajeno_se_ignoran(configurado, bot_db):
+    assert telegram_bot.responder_boton("cmd:servicios", "999") is None
+    assert telegram_bot.responder_boton("pos:borrar!:juan", "999") is None
+
+
+def test_enviar_mensaje_con_botones_arma_el_teclado(configurado, monkeypatch):
+    vistos = {}
+
+    def falso(req, timeout):
+        vistos["datos"] = json.loads(req.data.decode("utf-8"))
+        return _RespuestaFalsa({"ok": True})
+
+    monkeypatch.setattr(telegram_api.urllib.request, "urlopen", falso)
+    assert telegram_api.enviar_mensaje("elegí", botones=[[("A", "a"), ("B", "b")]]) is True
+    assert vistos["datos"]["reply_markup"] == {"inline_keyboard": [[
+        {"text": "A", "callback_data": "a"}, {"text": "B", "callback_data": "b"}]]}
+
+
+def test_toque_de_boton_se_contesta_y_responde_con_botones(configurado, bot_db, monkeypatch):
+    enviados, contestados = [], []
+    monkeypatch.setattr(telegram_api, "enviar_mensaje", lambda texto, chat_id=None, botones=None: enviados.append((chat_id, botones)) or True)
+    monkeypatch.setattr(telegram_api, "responder_boton", lambda cid: contestados.append(cid))
+    telegram_bot._procesar_update({"update_id": 1, "callback_query": {
+        "id": "cb1", "data": "cmd:servicios", "message": {"chat": {"id": 555}}}})
+    assert contestados == ["cb1"]
+    assert enviados[0][0] == 555 and _datos(enviados[0][1]) == ["cmd:qpc", "cmd:mc", "cmd:pos"]
+
+
+# ─── POS Takana: el alta de usuarios es sólo por acá ──────────────────────────
+
+@pytest.fixture
+def pos(configurado, bot_db, monkeypatch):
+    """POS configurado y con _llamar_pos falso: registra los pedidos."""
+    monkeypatch.setattr(config, "POS_INTERNO_TOKEN", "TOKEN-INTERNO-POS")
+    monkeypatch.setattr(telegram_bot, "_esperando", {})
+    pedidos = []
+    respuestas = {}
+
+    def falso(metodo, ruta, cuerpo=None, timeout=8):
+        pedidos.append((metodo, ruta, cuerpo))
+        return respuestas.get((metodo, ruta), (200, {}))
+
+    monkeypatch.setattr(telegram_bot, "_llamar_pos", falso)
+    return pedidos, respuestas
+
+
+def test_alta_pide_nombre_despues_rol_y_crea_con_contrasena_aleatoria(pos):
+    pedidos, respuestas = pos
+    assert "Escribí el nombre" in telegram_bot.responder_boton("pos:alta", CHAT)[0]
+
+    texto, botones = telegram_bot.responder_completo("Juan.Perez", CHAT)
+    assert "juan.perez" in texto
+    assert "pos:rol:vendedor:juan.perez" in _datos(botones)
+    assert pedidos == []  # todavía no se creó nada
+
+    respuestas[("POST", "/api/interno/usuarios")] = (200, {"username": "juan.perez", "rol": "vendedor", "contrasena": "Xy9-aleatoria"})
+    texto = telegram_bot.responder_boton("pos:rol:vendedor:juan.perez", CHAT)[0]
+    assert pedidos == [("POST", "/api/interno/usuarios", {"username": "juan.perez", "rol": "vendedor"})]
+    assert "Xy9-aleatoria" in texto and "TOKEN-INTERNO-POS" not in texto
+
+
+def test_alta_rechaza_nombres_invalidos_sin_tocar_el_pos(pos):
+    pedidos, _ = pos
+    telegram_bot.responder_boton("pos:alta", CHAT)
+    texto, _ = telegram_bot.responder_completo("juan perez", CHAT)
+    assert "no sirve" in texto
+    assert telegram_bot.responder_boton("pos:rol:root:juan", CHAT) is None
+    assert telegram_bot.responder_boton("pos:rol:admin:a b", CHAT) is None
+    assert pedidos == []
+
+
+def test_alta_se_corta_con_un_comando(pos):
+    telegram_bot.responder_completo("/posalta", CHAT)
+    assert telegram_bot.responder_completo("/cancelar", CHAT)[0] == "Listo, cancelado."
+    assert telegram_bot.responder_completo("juan", CHAT)[0].startswith("No entendí")
+
+
+def test_alta_muestra_el_error_del_pos(pos):
+    _, respuestas = pos
+    respuestas[("POST", "/api/interno/usuarios")] = (409, {"detail": "Ese usuario ya existe"})
+    assert "Ese usuario ya existe" in telegram_bot.responder_boton("pos:rol:admin:juan", CHAT)[0]
+
+
+def test_sin_token_del_pos_lo_explica_y_no_llama(pos, monkeypatch):
+    pedidos, _ = pos
+    monkeypatch.setattr(config, "POS_INTERNO_TOKEN", "")
+    assert "POS_INTERNO_TOKEN" in telegram_bot.responder_completo("/posalta", CHAT)[0]
+    assert "POS_INTERNO_TOKEN" in telegram_bot.responder_completo("/posusuarios", CHAT)[0]
+    assert pedidos == []
+
+
+def test_borrar_y_nueva_contrasena_piden_confirmacion(pos):
+    pedidos, respuestas = pos
+    texto, botones = telegram_bot.responder_boton("pos:borrar:juan", CHAT)
+    assert "pos:borrar!:juan" in _datos(botones) and pedidos == []
+    telegram_bot.responder_boton("pos:borrar!:juan", CHAT)
+    assert pedidos[-1] == ("DELETE", "/api/interno/usuarios/juan", None)
+
+    texto, botones = telegram_bot.responder_boton("pos:clave:juan", CHAT)
+    assert "pos:clave!:juan" in _datos(botones) and len(pedidos) == 1
+    respuestas[("POST", "/api/interno/usuarios/juan/contrasena")] = (200, {"username": "juan", "contrasena": "nueva-123"})
+    assert "nueva-123" in telegram_bot.responder_boton("pos:clave!:juan", CHAT)[0]
+
+
+def test_usuarios_lista_con_botones_por_usuario(pos):
+    _, respuestas = pos
+    respuestas[("GET", "/api/interno/usuarios")] = (200, [{"username": "juan", "rol": "vendedor"}])
+    texto, botones = telegram_bot.responder_completo("/posusuarios", CHAT)
+    assert "juan (vendedor)" in texto
+    assert {"pos:clave:juan", "pos:borrar:juan", "pos:alta"} <= set(_datos(botones))
+
+
+def test_llamar_pos_manda_el_token_y_solo_a_una_direccion_local(monkeypatch):
+    monkeypatch.setattr(config, "POS_INTERNO_TOKEN", "TOKEN-INTERNO-POS")
+    capturado = {}
+
+    def falso_urlopen(req, timeout=None):
+        capturado.update(url=req.full_url, cabeceras={k.lower(): v for k, v in req.header_items()})
+        return _RespuestaFalsa([])
+
+    monkeypatch.setattr(telegram_bot.urllib.request, "urlopen", falso_urlopen)
+    assert telegram_bot._llamar_pos("GET", "/api/interno/usuarios") == (200, [])
+    assert capturado["url"] == "http://127.0.0.1:8060/api/interno/usuarios"
+    assert capturado["cabeceras"]["x-interno-token"] == "TOKEN-INTERNO-POS"
+
+    monkeypatch.setattr(config, "POS_API_URL", "https://posapi.takana.online")
+    with pytest.raises(ValueError):
+        telegram_bot._llamar_pos("GET", "/api/interno/usuarios")

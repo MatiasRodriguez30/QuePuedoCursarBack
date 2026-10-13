@@ -42,3 +42,8 @@ API_PUBLICA_URL = os.environ.get("API_PUBLICA_URL", "https://quepuedocursar.taka
 PANEL_MC_URL = os.environ.get("PANEL_MC_URL", "https://192.168.1.44:8443")
 PANEL_MC_URL_TAILSCALE = os.environ.get("PANEL_MC_URL_TAILSCALE", "https://100.107.211.46:8443")
 PANEL_MC_USUARIO = os.environ.get("PANEL_MC_USUARIO", "Leciloft")
+# POS Takana (corre en el mismo servidor): el bot es el ÚNICO lugar donde se dan de alta sus usuarios, por rutas
+# internas que sólo aceptan pedidos locales con POS_INTERNO_TOKEN (= el INTERNO_TOKEN del .env del POS).
+POS_API_URL = os.environ.get("POS_API_URL", "http://127.0.0.1:8060")
+POS_PUBLICA_URL = os.environ.get("POS_PUBLICA_URL", "https://posapi.takana.online")
+POS_INTERNO_TOKEN = os.environ.get("POS_INTERNO_TOKEN", "")

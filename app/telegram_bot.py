@@ -1,7 +1,8 @@
 """
-Bot de Telegram personal: responde comandos desde el celular del dueño
-(/hoy, /manana, /cursar, /estado) con datos de Qué Puedo Cursar y de la
-tablet.
+Bot de Telegram personal: responde comandos desde el celular del dueño con
+datos de sus servicios, agrupados en /servicios (con botones): Qué Puedo
+Cursar, el servidor de Minecraft y el POS Takana. Es también el ÚNICO lugar
+donde se dan de alta los usuarios del POS.
 
 Corre como un hilo en segundo plano dentro del mismo proceso de uvicorn
 (arrancado en el startup de FastAPI, ver app/main.py), con long polling:
@@ -16,6 +17,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import ssl
 import subprocess
 import threading
@@ -26,7 +28,7 @@ import urllib.parse
 import urllib.request
 from datetime import timedelta
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import func
 
@@ -44,17 +46,44 @@ EDAD_MAXIMA_MENSAJE = 600  # un comando de hace más de 10 min ya no tiene senti
 DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 
 AYUDA = (
-    "Comandos:\n"
+    "/servicios — elegí un servicio con botones\n"
+    "\n"
+    "Qué Puedo Cursar — /qpc\n"
     "/hoy — agenda de hoy\n"
     "/manana — agenda de mañana\n"
     "/cursar — materias que podés cursar ahora\n"
-    "/pc — el equipo: batería, temperatura, RAM, discos, Wi-Fi\n"
-    "/consumo — cuánta energía gasta el equipo ahora\n"
-    "/servicios — Qué Puedo Cursar: API, base, dominio, recordatorio y el panel del servidor de Minecraft\n"
-    "/panelservidormc — panel de administración del servidor de Minecraft (link)\n"
-    "/token — código para entrar al panel del servidor de Minecraft\n"
-    "/estado — todo lo anterior junto\n"
+    "/qpcestado — API, base, dominio y recordatorio\n"
+    "\n"
+    "Servidor de Minecraft — /mc\n"
+    "/panelservidormc — panel de administración (link)\n"
+    "/token — código para entrar al panel\n"
+    "\n"
+    "POS Takana — /pos\n"
+    "/posalta — dar de alta un usuario (el único lugar donde se crean)\n"
+    "/posusuarios — usuarios: nueva contraseña o borrar\n"
+    "/posestado — API y usuarios\n"
+    "\n"
+    "El equipo\n"
+    "/pc — batería, temperatura, RAM, discos, Wi-Fi\n"
+    "/consumo — cuánta energía gasta ahora\n"
+    "/estado — Qué Puedo Cursar + el equipo\n"
+    "/cancelar — corta un alta a medio hacer\n"
     "/ayuda — esta lista"
+)
+
+# Filas de botones: (texto, dato). El dato vuelve en el callback_query al tocarlo.
+Botones = List[List[Tuple[str, str]]]
+Respuesta = Tuple[str, Optional[Botones]]
+
+# Lo que el bot espera como próximo mensaje de texto, por chat (por ahora sólo
+# el nombre de un alta del POS). En memoria: un reinicio corta el alta y listo.
+_esperando: Dict[str, str] = {}
+USUARIO_POS = re.compile(r"[a-z0-9._-]{3,30}")  # la misma regla que valida el POS
+FALTA_TOKEN_POS = "Falta POS_INTERNO_TOKEN en el .env del bot: sin eso no puedo tocar los usuarios del POS."
+ROLES_POS = (
+    ("admin", "Admin: todo, incluidos productos y precios"),
+    ("vendedor", "Vendedor: cobrar y ver ventas"),
+    ("invitado", "Invitado: sólo consultar precios"),
 )
 
 
@@ -112,7 +141,10 @@ def _proceso_vivo(archivo_pid: str) -> Optional[str]:
 def _probar_publico() -> str:
     """Pide el dominio público de la API: prueba de punta a punta (internet →
     Cloudflare → túnel → API), que es justo lo que ven los usuarios."""
-    url = config.API_PUBLICA_URL.rstrip("/") + "/openapi.json"
+    return _probar_url(config.API_PUBLICA_URL.rstrip("/") + "/openapi.json")
+
+
+def _probar_url(url: str) -> str:
     inicio = time.time()
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "QuePuedoCursar-bot/1.0"})
@@ -165,7 +197,6 @@ def _servicios(db) -> str:
     lineas.append(f"• Recordatorio de las 21:00: programado, próximo en {sistema_info.duracion(_segundos_hasta_proximo_envio())}")
     lineas.append("• Mails (Resend): " + ("configurado" if config.RESEND_API_KEY else "SIN configurar"))
     lineas.append(f"• Conexiones en vivo: {len(manager.active_connections)} dispositivos, {len(manager.usuarios_en_linea())} usuarios")
-    lineas.append(f"• Panel del servidor de Minecraft: {_probar_panel_mc()} — /panelservidormc")
     commit = _commit()
     if commit != "n/d":
         lineas.append(f"• Versión: {commit}")
@@ -269,6 +300,168 @@ def _equipo() -> str:
     return "\n".join(lineas)
 
 
+# ─── POS Takana ───────────────────────────────────────────────────────────────
+
+def _llamar_pos(metodo: str, ruta: str, cuerpo: Optional[dict] = None, timeout: int = 8):
+    """Habla con las rutas internas del POS (mismo servidor). Devuelve (código HTTP, JSON).
+
+    Sólo a una dirección local: el token interno nunca sale del equipo. Levanta
+    OSError/ValueError si no se puede.
+    """
+    if urllib.parse.urlsplit(config.POS_API_URL).hostname not in ("127.0.0.1", "localhost", "::1"):
+        raise ValueError("POS_API_URL tiene que ser local (127.0.0.1)")
+    req = urllib.request.Request(
+        config.POS_API_URL.rstrip("/") + ruta, method=metodo,
+        data=json.dumps(cuerpo).encode("utf-8") if cuerpo is not None else None,
+        headers={"Content-Type": "application/json", "X-Interno-Token": config.POS_INTERNO_TOKEN,
+                 "User-Agent": "QuePuedoCursar-bot/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, json.loads(resp.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read() or b"{}")
+        except ValueError:
+            return e.code, {}
+
+
+def _pedir_pos(metodo: str, ruta: str, cuerpo: Optional[dict] = None):
+    """(datos, None) si salió bien, o (None, texto del error para el chat)."""
+    if not config.POS_INTERNO_TOKEN:
+        return None, FALTA_TOKEN_POS
+    try:
+        codigo, datos = _llamar_pos(metodo, ruta, cuerpo)
+    except Exception as e:
+        logger.warning("Telegram: no se pudo hablar con el POS (%s)", e.__class__.__name__)
+        return None, "No pude hablar con el POS (¿está levantado el contenedor takanapos?)."
+    if 200 <= codigo < 300:
+        return datos, None
+    if codigo in (400, 409) and isinstance(datos, dict) and datos.get("detail"):
+        return None, str(datos["detail"])
+    if codigo == 404 and ruta == "/api/interno/usuarios":
+        return None, "El POS rechazó el token interno: revisá que POS_INTERNO_TOKEN sea igual al INTERNO_TOKEN del POS."
+    if codigo == 404:
+        return None, "Ese usuario no existe."
+    return None, f"El POS respondió con un error (HTTP {codigo})."
+
+
+def _pos_estado() -> str:
+    lineas = ["POS Takana", "• Web: https://pos.takana.online",
+              f"• API pública: {_probar_url(config.POS_PUBLICA_URL.rstrip('/') + '/openapi.json')}"]
+    usuarios, error = _pedir_pos("GET", "/api/interno/usuarios")
+    lineas.append(f"• Usuarios: {len(usuarios)}" if error is None else "• Usuarios: " + error)
+    return "\n".join(lineas)
+
+
+def _pos_usuarios() -> Respuesta:
+    usuarios, error = _pedir_pos("GET", "/api/interno/usuarios")
+    if error:
+        return error, None
+    alta = [("Dar de alta usuario", "pos:alta")]
+    if not usuarios:
+        return "El POS no tiene usuarios todavía.", [alta]
+    texto = "Usuarios del POS:\n" + "\n".join(f"• {u['username']} ({u['rol']})" for u in usuarios)
+    botones = [[("Nueva contraseña: " + u["username"], "pos:clave:" + u["username"]),
+                ("Borrar: " + u["username"], "pos:borrar:" + u["username"])] for u in usuarios]
+    return texto, botones + [alta]
+
+
+def _pos_alta_inicio(chat_id) -> Respuesta:
+    if not config.POS_INTERNO_TOKEN:
+        return FALTA_TOKEN_POS, None
+    _esperando[str(chat_id)] = "pos_alta"
+    return ("Alta de usuario del POS. Escribí el nombre de usuario: de 3 a 30 letras minúsculas, "
+            "números, punto o guion, sin espacios. /cancelar para salir."), None
+
+
+def _pos_alta_pedir_rol(nombre: str) -> Respuesta:
+    nombre = nombre.strip().lower()
+    if not USUARIO_POS.fullmatch(nombre):
+        return ("Ese nombre no sirve: de 3 a 30 letras minúsculas, números, punto o guion, sin espacios. "
+                "Tocá de nuevo para reintentar."), [[("Dar de alta usuario", "pos:alta")]]
+    botones = [[(etiqueta, f"pos:rol:{rol}:{nombre}")] for rol, etiqueta in ROLES_POS]
+    return f"¿Qué rol tiene {nombre}?", botones + [[("Cancelar", "cmd:cancelar")]]
+
+
+def _pos_crear(nombre: str, rol: str) -> str:
+    datos, error = _pedir_pos("POST", "/api/interno/usuarios", {"username": nombre, "rol": rol})
+    if error:
+        return "No se creó: " + error
+    return (f"Usuario creado en el POS\nUsuario: {datos['username']}\nRol: {datos['rol']}\n"
+            f"Contraseña: {datos['contrasena']}\n\n"
+            "Entrá en https://pos.takana.online o en la app. La contraseña no se vuelve a mostrar: "
+            "si se pierde, generá otra desde /posusuarios. Conviene borrar este mensaje después de anotarla.")
+
+
+def _pos_nueva_clave(nombre: str) -> str:
+    datos, error = _pedir_pos("POST", f"/api/interno/usuarios/{urllib.parse.quote(nombre)}/contrasena")
+    if error:
+        return "No se cambió: " + error
+    return (f"Contraseña nueva para {datos['username']}: {datos['contrasena']}\n"
+            "La anterior ya no funciona. Conviene borrar este mensaje después de anotarla.")
+
+
+def _pos_borrar(nombre: str) -> str:
+    _, error = _pedir_pos("DELETE", f"/api/interno/usuarios/{urllib.parse.quote(nombre)}")
+    if error:
+        return "No se borró: " + error
+    return f"Usuario {nombre} borrado del POS."
+
+
+def _boton_pos(accion: str, chat_id) -> Optional[Respuesta]:
+    tipo, _, arg = accion.partition(":")
+    if tipo == "alta":
+        return _pos_alta_inicio(chat_id)
+    if tipo == "rol":
+        rol, _, nombre = arg.partition(":")
+        if rol in dict(ROLES_POS) and USUARIO_POS.fullmatch(nombre):
+            return _pos_crear(nombre, rol), None
+        return None
+    if tipo == "clave":
+        return (f"¿Generar una contraseña nueva para {arg}? La actual deja de funcionar.",
+                [[("Sí, generar", "pos:clave!:" + arg), ("Cancelar", "cmd:cancelar")]])
+    if tipo == "clave!":
+        return _pos_nueva_clave(arg), None
+    if tipo == "borrar":
+        return (f"¿Borrar el usuario {arg} del POS? No se puede deshacer.",
+                [[("Sí, borrar", "pos:borrar!:" + arg), ("Cancelar", "cmd:cancelar")]])
+    if tipo == "borrar!":
+        return _pos_borrar(arg), None
+    return None
+
+
+# ─── Menús ────────────────────────────────────────────────────────────────────
+
+def _menu_servicios() -> Respuesta:
+    return "¿Qué servicio?", [
+        [("Qué Puedo Cursar", "cmd:qpc")],
+        [("Servidor de Minecraft", "cmd:mc")],
+        [("POS Takana", "cmd:pos")],
+    ]
+
+
+def _menu_qpc() -> Respuesta:
+    return "Qué Puedo Cursar", [
+        [("Agenda de hoy", "cmd:hoy"), ("Agenda de mañana", "cmd:manana")],
+        [("Materias para cursar", "cmd:cursar")],
+        [("Estado", "cmd:qpcestado")],
+    ]
+
+
+def _menu_mc() -> Respuesta:
+    return f"Servidor de Minecraft\nPanel: {_probar_panel_mc()}\n/panelservidormc — link\n/token — código de acceso", [
+        [("Link del panel", "cmd:panelservidormc"), ("Código de acceso", "cmd:token")],
+    ]
+
+
+def _menu_pos() -> Respuesta:
+    return "POS Takana\nLos usuarios del POS se dan de alta sólo desde acá.", [
+        [("Dar de alta usuario", "pos:alta")],
+        [("Usuarios", "cmd:posusuarios"), ("Estado", "cmd:posestado")],
+    ]
+
+
 # ─── Comandos ─────────────────────────────────────────────────────────────────
 
 def _normalizar_comando(texto: str) -> str:
@@ -277,46 +470,97 @@ def _normalizar_comando(texto: str) -> str:
     return unicodedata.normalize("NFKD", primero).encode("ascii", "ignore").decode("ascii")
 
 
+def _es_del_dueno(chat_id) -> bool:
+    return bool(config.TELEGRAM_CHAT_ID) and str(chat_id) == str(config.TELEGRAM_CHAT_ID).strip()
+
+
 def responder(texto: str, chat_id) -> Optional[str]:
     """Texto de respuesta a un mensaje, o None si hay que ignorarlo."""
-    if not config.TELEGRAM_CHAT_ID or str(chat_id) != str(config.TELEGRAM_CHAT_ID).strip():
+    r = responder_completo(texto, chat_id)
+    return r[0] if r else None
+
+
+def responder_completo(texto: str, chat_id) -> Optional[Respuesta]:
+    """(texto, botones) de respuesta a un mensaje, o None si hay que ignorarlo."""
+    if not _es_del_dueno(chat_id):
         return None
-    comando = _normalizar_comando(texto)
+    esperando = _esperando.pop(str(chat_id), None)
+    if esperando == "pos_alta" and not texto.strip().startswith("/"):
+        return _pos_alta_pedir_rol(texto)
+    return _ejecutar(_normalizar_comando(texto), chat_id)
+
+
+def responder_boton(dato: str, chat_id) -> Optional[Respuesta]:
+    """(texto, botones) al tocar un botón, o None si hay que ignorarlo."""
+    if not _es_del_dueno(chat_id):
+        return None
+    _esperando.pop(str(chat_id), None)
+    tipo, _, resto = dato.partition(":")
+    if tipo == "cmd":
+        return _ejecutar(resto, chat_id)
+    if tipo == "pos":
+        return _boton_pos(resto, chat_id)
+    return None
+
+
+COMANDOS_CON_BASE = ("hoy", "manana", "cursar", "estado", "pc", "consumo", "qpcestado")
+
+
+def _ejecutar(comando: str, chat_id) -> Respuesta:
     if comando in ("start", "ayuda", "help"):
-        return AYUDA
-    if comando not in ("hoy", "manana", "cursar", "estado", "pc", "servicios", "consumo", "panelservidormc", "token"):
-        return "No entendí. " + AYUDA
-    if comando == "panelservidormc":
-        return _panel_mc()
-    if comando == "token":
-        return _token_panel()
+        return AYUDA, None
+    if comando == "cancelar":
+        return "Listo, cancelado.", None
+    menus = {"servicios": _menu_servicios, "qpc": _menu_qpc, "mc": _menu_mc, "pos": _menu_pos,
+             "posusuarios": _pos_usuarios}
+    if comando in menus:
+        return menus[comando]()
+    if comando == "posalta":
+        return _pos_alta_inicio(chat_id)
+    simples = {"panelservidormc": _panel_mc, "token": _token_panel, "posestado": _pos_estado}
+    if comando in simples:
+        return simples[comando](), None
+    if comando not in COMANDOS_CON_BASE:
+        return "No entendí.\n\n" + AYUDA, None
 
     db = SessionLocal()
     try:
         if comando == "hoy":
-            return _agenda(db, _ahora_argentina().date(), "hoy")
+            return _agenda(db, _ahora_argentina().date(), "hoy"), None
         if comando == "manana":
-            return _agenda(db, (_ahora_argentina() + timedelta(days=1)).date(), "mañana")
+            return _agenda(db, (_ahora_argentina() + timedelta(days=1)).date(), "mañana"), None
         if comando == "cursar":
-            return _cursar(db)
+            return _cursar(db), None
         if comando == "pc":
-            return _equipo()
+            return _equipo(), None
         if comando == "consumo":
             lineas = sistema_info.describir_consumo()
-            return "\n".join(["Consumo del equipo"] + lineas) if lineas else "Este equipo no informa su consumo."
-        if comando == "servicios":
-            return _servicios(db)
-        return _servicios(db) + "\n\n" + _equipo()
+            return ("\n".join(["Consumo del equipo"] + lineas) if lineas else "Este equipo no informa su consumo."), None
+        if comando == "qpcestado":
+            return _servicios(db), None
+        return _servicios(db) + "\n\n" + _equipo(), None
     except Exception:
         logger.exception("Telegram: falló el comando %s", comando)
-        return "Algo falló procesando ese comando. Revisá los logs del servidor."
+        return "Algo falló procesando ese comando. Revisá los logs del servidor.", None
     finally:
         db.close()
 
 
 # ─── Polling ──────────────────────────────────────────────────────────────────
 
+def _enviar(chat_id, respuesta: Respuesta) -> None:
+    texto, botones = respuesta
+    if botones:
+        telegram_api.enviar_mensaje(texto, chat_id=chat_id, botones=botones)
+    else:
+        telegram_api.enviar_mensaje(texto, chat_id=chat_id)
+
+
 def _procesar_update(update: dict) -> None:
+    boton = update.get("callback_query")
+    if boton:
+        _procesar_boton(boton)
+        return
     mensaje = update.get("message") or {}
     texto = mensaje.get("text")
     chat = mensaje.get("chat") or {}
@@ -324,9 +568,19 @@ def _procesar_update(update: dict) -> None:
         return
     if time.time() - mensaje.get("date", 0) > EDAD_MAXIMA_MENSAJE:
         return
-    respuesta = responder(texto, chat["id"])
+    respuesta = responder_completo(texto, chat["id"])
     if respuesta:
-        telegram_api.enviar_mensaje(respuesta, chat_id=chat["id"])
+        _enviar(chat["id"], respuesta)
+
+
+def _procesar_boton(boton: dict) -> None:
+    chat = (boton.get("message") or {}).get("chat") or {}
+    if "id" not in chat or not _es_del_dueno(chat["id"]):
+        return  # de un chat ajeno: ni se contesta
+    telegram_api.responder_boton(boton.get("id", ""))
+    respuesta = responder_boton(boton.get("data") or "", chat["id"])
+    if respuesta:
+        _enviar(chat["id"], respuesta)
 
 
 def _loop(detener: threading.Event) -> None:
