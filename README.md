@@ -68,8 +68,8 @@ Un bot personal que corre **dentro del mismo proceso de uvicorn** (un hilo con l
 | `/panelservidormc` | Link del panel de administración del servidor de Minecraft (red de casa y Tailscale, no está en internet) y el usuario con el que se entra |
 | `/token` | Le pide al panel un código de acceso de un solo uso (vence a los 5 minutos); llega por este mismo bot en otro mensaje y se escribe en la pantalla de ingreso del panel |
 | **POS Takana** (`/pos`) | |
-| `/posalta` | Alta de un usuario del POS: pide el nombre y el rol (botones) y responde con una contraseña aleatoria. **Es el único lugar donde se crean usuarios del POS** |
-| `/posusuarios` | Lista los usuarios del POS con botones para generar una contraseña nueva o borrarlo (ambos piden confirmación) |
+| `/posalta` | Alta de un usuario del POS: pide el nombre, el rol (botones) y la contraseña, que se escribe o se genera al azar con un botón. El mensaje con la contraseña escrita se borra del chat apenas se lee. **Es el único lugar donde se crean usuarios del POS** |
+| `/posusuarios` | Lista los usuarios del POS con botones para cambiarle la contraseña (escrita o al azar) o borrarlo (pide confirmación) |
 | `/posestado` | Dominio público del POS y cantidad de usuarios |
 | **El equipo** | |
 | `/pc` | El equipo: batería (si está enchufado/cargando), temperatura de la CPU, carga, RAM, discos, señal Wi-Fi, consumo y uptime |
