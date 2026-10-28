@@ -493,6 +493,28 @@ def test_usuarios_lista_con_botones_por_usuario(pos):
     assert {"pos:clave:juan", "pos:borrar:juan", "pos:alta"} <= set(_datos(botones))
 
 
+def test_busqueda_muestra_el_estado_y_ofrece_el_boton_contrario(pos):
+    pedidos, respuestas = pos
+    respuestas[("GET", "/api/interno/busqueda")] = (200, {"activa": True, "ram_mb": 235, "productos": 92, "con_vector": 92})
+    texto, botones = telegram_bot.responder_completo("/posbusqueda", CHAT)
+    assert "prendida" in texto and "235 MB" in texto and "92 de 92" in texto
+    assert _datos(botones) == ["pos:busqueda:apagar"]
+
+    respuestas[("POST", "/api/interno/busqueda/apagar")] = (200, {"activa": False, "ram_mb": None, "productos": 92, "con_vector": 92})
+    texto, botones = telegram_bot.responder_boton("pos:busqueda:apagar", CHAT)
+    assert pedidos[-1] == ("POST", "/api/interno/busqueda/apagar", None)
+    assert "apagada" in texto and _datos(botones) == ["pos:busqueda:encender"]
+
+    assert telegram_bot.responder_boton("pos:busqueda:borrar", CHAT) is None
+    assert len(pedidos) == 2
+
+
+def test_busqueda_en_un_pos_viejo_lo_explica(pos):
+    _, respuestas = pos
+    respuestas[("GET", "/api/interno/busqueda")] = (404, {"detail": "Not Found"})
+    assert "no tiene la búsqueda" in telegram_bot.responder_completo("/posbusqueda", CHAT)[0]
+
+
 def test_llamar_pos_manda_el_token_y_solo_a_una_direccion_local(monkeypatch):
     monkeypatch.setattr(config, "POS_INTERNO_TOKEN", "TOKEN-INTERNO-POS")
     capturado = {}

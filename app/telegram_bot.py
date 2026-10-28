@@ -62,6 +62,7 @@ AYUDA = (
     "/posalta — dar de alta un usuario (el único lugar donde se crean)\n"
     "/posusuarios — usuarios: nueva contraseña o borrar\n"
     "/posestado — API y usuarios\n"
+    "/posbusqueda — búsqueda por significado: prender o apagar (apagada ahorra ~200 MB de RAM)\n"
     "\n"
     "El equipo\n"
     "/pc — batería, temperatura, RAM, discos, Wi-Fi\n"
@@ -329,12 +330,12 @@ def _llamar_pos(metodo: str, ruta: str, cuerpo: Optional[dict] = None, timeout: 
             return e.code, {}
 
 
-def _pedir_pos(metodo: str, ruta: str, cuerpo: Optional[dict] = None):
+def _pedir_pos(metodo: str, ruta: str, cuerpo: Optional[dict] = None, timeout: int = 8):
     """(datos, None) si salió bien, o (None, texto del error para el chat)."""
     if not config.POS_INTERNO_TOKEN:
         return None, FALTA_TOKEN_POS
     try:
-        codigo, datos = _llamar_pos(metodo, ruta, cuerpo)
+        codigo, datos = _llamar_pos(metodo, ruta, cuerpo, timeout)
     except Exception as e:
         logger.warning("Telegram: no se pudo hablar con el POS (%s)", e.__class__.__name__)
         return None, "No pude hablar con el POS (¿está levantado el contenedor takanapos?)."
@@ -344,6 +345,8 @@ def _pedir_pos(metodo: str, ruta: str, cuerpo: Optional[dict] = None):
         return None, str(datos["detail"])
     if codigo == 404 and ruta == "/api/interno/usuarios":
         return None, "El POS rechazó el token interno: revisá que POS_INTERNO_TOKEN sea igual al INTERNO_TOKEN del POS."
+    if codigo == 404 and ruta.startswith("/api/interno/busqueda"):
+        return None, "El POS no tiene la búsqueda por significado o rechazó el token interno."
     if codigo == 404:
         return None, "Ese usuario no existe."
     return None, f"El POS respondió con un error (HTTP {codigo})."
@@ -446,8 +449,32 @@ def _pos_borrar(nombre: str) -> str:
     return f"Usuario {nombre} borrado del POS."
 
 
+def _pos_busqueda(accion: Optional[str] = None) -> Respuesta:
+    """Estado de la búsqueda por significado del POS; accion = "encender"/"apagar" la cambia.
+    El modelo corre en un proceso aparte del POS: apagado no ocupa RAM."""
+    if accion:
+        # Prender carga el modelo y calcula los vectores que falten: puede tardar unos segundos.
+        estado, error = _pedir_pos("POST", f"/api/interno/busqueda/{accion}", timeout=60)
+    else:
+        estado, error = _pedir_pos("GET", "/api/interno/busqueda")
+    if error:
+        return "Búsqueda del POS: " + error, None
+    if estado.get("activa"):
+        ram = f"{estado['ram_mb']} MB" if estado.get("ram_mb") else "sin dato"
+        texto = (f"Búsqueda por significado del POS: 🟢 prendida\n• RAM del modelo: {ram}\n"
+                 f"• Productos con vector: {estado.get('con_vector')} de {estado.get('productos')}")
+        boton = ("Apagar (libera la RAM)", "pos:busqueda:apagar")
+    else:
+        texto = ("Búsqueda por significado del POS: 🔴 apagada\n"
+                 "El POS busca por texto (palabras exactas, sin importar acentos).")
+        boton = ("Prender", "pos:busqueda:encender")
+    return texto, [[boton]]
+
+
 def _boton_pos(accion: str, chat_id) -> Optional[Respuesta]:
     tipo, _, arg = accion.partition(":")
+    if tipo == "busqueda":
+        return _pos_busqueda(arg) if arg in ("encender", "apagar") else None
     if tipo == "alta":
         return _pos_alta_inicio(chat_id)
     if tipo in ("rol", "crear"):
@@ -497,6 +524,7 @@ def _menu_pos() -> Respuesta:
     return "POS Takana\nLos usuarios del POS se dan de alta sólo desde acá.", [
         [("Dar de alta usuario", "pos:alta")],
         [("Usuarios", "cmd:posusuarios"), ("Estado", "cmd:posestado")],
+        [("Búsqueda por significado", "cmd:posbusqueda")],
     ]
 
 
@@ -559,7 +587,7 @@ def _ejecutar(comando: str, chat_id) -> Respuesta:
     if comando == "cancelar":
         return "Listo, cancelado.", None
     menus = {"servicios": _menu_servicios, "qpc": _menu_qpc, "mc": _menu_mc, "pos": _menu_pos,
-             "posusuarios": _pos_usuarios}
+             "posusuarios": _pos_usuarios, "posbusqueda": _pos_busqueda}
     if comando in menus:
         return menus[comando]()
     if comando == "posalta":
