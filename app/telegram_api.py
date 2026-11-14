@@ -96,6 +96,21 @@ def responder_boton(callback_id: str) -> None:
         logger.warning("Telegram: no se pudo responder el botón (%s)", e.__class__.__name__)
 
 
+def registrar_comandos(comandos: List[Tuple[str, str]]) -> bool:
+    """Publica la lista de comandos del botón Menú en Telegram (setMyCommands).
+    Nunca levanta excepciones."""
+    if not config.TELEGRAM_BOT_TOKEN:
+        return False
+    datos = {
+        "commands": [{"command": c, "description": d[:256]} for c, d in comandos],
+    }
+    try:
+        return bool(_pedir("setMyCommands", datos, timeout=10).get("ok"))
+    except Exception as e:
+        logger.warning("Telegram: no se pudieron registrar los comandos (%s)", e.__class__.__name__)
+        return False
+
+
 def obtener_updates(offset: Optional[int], timeout: int = 30) -> List[dict]:
     """getUpdates con long polling. `offset` = id del último update + 1."""
     datos = {"timeout": timeout, "allowed_updates": ["message", "callback_query"]}
