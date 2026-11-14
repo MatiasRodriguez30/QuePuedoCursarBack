@@ -72,6 +72,16 @@ AYUDA = (
     "/ayuda — esta lista"
 )
 
+COMANDOS_MENU: List[Tuple[str, str]] = [
+    ("servicios", "Menú interactivo con botones de todos los servicios"),
+    ("qpc", "Qué Puedo Cursar (agenda, cursar, estado)"),
+    ("mc", "Servidor de Minecraft (panel y token)"),
+    ("pos", "POS Takana (alta y gestión de usuarios)"),
+    ("pc", "Estado del equipo (batería, temp, RAM, discos)"),
+    ("estado", "Estado de Qué Puedo Cursar + el equipo"),
+    ("ayuda", "Lista completa de comandos"),
+]
+
 # Filas de botones: (texto, dato). El dato vuelve en el callback_query al tocarlo.
 Botones = List[List[Tuple[str, str]]]
 Respuesta = Tuple[str, Optional[Botones]]
@@ -664,6 +674,7 @@ def _procesar_boton(boton: dict) -> None:
 
 
 def _loop(detener: threading.Event) -> None:
+    telegram_api.registrar_comandos(COMANDOS_MENU)
     offset = None
     espera = 5
     while not detener.is_set():

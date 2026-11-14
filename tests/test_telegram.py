@@ -584,3 +584,23 @@ def test_si_no_puede_borrar_la_contrasena_avisa(pos, monkeypatch):
     telegram_bot.responder_boton("pos:clave:juan", CHAT)
     telegram_bot._procesar_update({"update_id": 1, "message": {"message_id": 5, "text": "clave-nueva-99", "chat": {"id": 555}, "date": telegram_bot.time.time()}})
     assert "borralo vos" in enviados[-1]
+
+
+def test_registrar_comandos_envia_set_my_commands(monkeypatch):
+    llamadas = []
+    monkeypatch.setattr(telegram_api.config, "TELEGRAM_BOT_TOKEN", "tok-test")
+    monkeypatch.setattr(telegram_api, "_pedir", lambda metodo, datos, timeout: llamadas.append((metodo, datos)) or {"ok": True})
+    assert telegram_api.registrar_comandos(telegram_bot.COMANDOS_MENU) is True
+    assert len(llamadas) == 1
+    metodo, datos = llamadas[0]
+    assert metodo == "setMyCommands"
+    assert datos["commands"][0]["command"] == "servicios"
+    assert all(len(c["description"]) <= 256 for c in datos["commands"])
+
+
+def test_registrar_comandos_no_levanta_si_falla_red(monkeypatch):
+    monkeypatch.setattr(telegram_api.config, "TELEGRAM_BOT_TOKEN", "tok-test")
+    def boom(*_a, **_kw):
+        raise RuntimeError("sin red")
+    monkeypatch.setattr(telegram_api, "_pedir", boom)
+    assert telegram_api.registrar_comandos([("servicios", "Menú")]) is False
